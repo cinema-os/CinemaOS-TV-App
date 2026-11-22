@@ -44,6 +44,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -59,6 +60,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
+import com.nuvio.tv.ui.screens.settings.SettingsTopBarSurface
+import com.nuvio.tv.ui.screens.settings.SettingsTopBarTab
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.util.contentTextDirection
 import kotlinx.coroutines.delay
@@ -278,53 +281,9 @@ internal fun discoverFilterPills(
     }
 }
 
-private val PillShape = RoundedCornerShape(50)
-
-/** Shared capsule look of filter pills and the "Clear all" pill. */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun DiscoverPillSurface(
-    active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit
-) {
-    val accent = NuvioTheme.colors.Secondary
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        shape = CardDefaults.shape(shape = PillShape),
-        colors = CardDefaults.colors(
-            containerColor = if (active) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
-            focusedContainerColor = if (active) accent.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.22f)
-        ),
-        border = CardDefaults.border(
-            border = Border(
-                border = BorderStroke(
-                    if (active) 1.dp else NuvioTheme.spacing.hairline,
-                    if (active) accent else NuvioTheme.colors.Border
-                ),
-                shape = PillShape
-            ),
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
-                shape = PillShape
-            )
-        ),
-        scale = CardDefaults.scale(focusedScale = 1.0f, pressedScale = 1.0f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            content = content
-        )
-    }
-}
-
 /**
- * Compact "Label: value" pill that opens its option list in a popup overlay. When the popup closes
- * focus goes back to this pill.
+ * Compact "Label: value" chip (the same [SettingsTopBarTab] chip the Sports / Live TV filters use)
+ * that opens its option list in a popup overlay. When the popup closes focus goes back to this chip.
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -337,9 +296,9 @@ internal fun DiscoverFilterPill(
     blockFocus: Boolean,
     onFocused: () -> Unit,
     onMoveDown: () -> Boolean,
+    onTabPositioned: ((LayoutCoordinates) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var isFocused by remember { mutableStateOf(false) }
     var wasExpanded by remember { mutableStateOf(false) }
     // Seed focused option with the current selection so reopen highlights the right row.
     var focusedOptionValue by remember(expanded) {
@@ -376,53 +335,25 @@ internal fun DiscoverFilterPill(
     }
 
     Box(modifier = modifier) {
-        DiscoverPillSurface(
-            active = spec.active,
+        SettingsTopBarTab(
+            title = "${spec.title}: ${spec.valueLabel}",
+            isSelected = spec.active,
             onClick = { onExpandedChange(!expanded) },
+            onFocused = onFocused,
+            onFocusedTabPositioned = onTabPositioned,
             modifier = Modifier
+                .widthIn(max = 340.dp)
                 .focusRequester(focusRequester)
                 .focusProperties {
                     if (blockFocus) canFocus = false
                     if (upRequester != null) up = upRequester
-                }
-                .onFocusChanged { state ->
-                    isFocused = state.isFocused
-                    if (state.isFocused) onFocused()
                 }
                 .onPreviewKeyEvent { event ->
                     event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
                         event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
                         onMoveDown()
                 }
-        ) {
-            Text(
-                text = "${spec.title}:",
-                style = MaterialTheme.typography.labelLarge,
-                color = NuvioTheme.colors.TextTertiary,
-                maxLines = 1
-            )
-            Text(
-                text = spec.valueLabel,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    textDirection = spec.valueLabel.contentTextDirection(),
-                    fontWeight = if (spec.active) FontWeight.SemiBold else FontWeight.Normal
-                ),
-                color = NuvioTheme.colors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 180.dp)
-            )
-            Icon(
-                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) {
-                    stringResource(R.string.cd_collapse, spec.title)
-                } else {
-                    stringResource(R.string.cd_expand, spec.title)
-                },
-                modifier = Modifier.size(16.dp),
-                tint = if (isFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.TextSecondary
-            )
-        }
+        )
 
         DropdownMenu(
             expanded = expanded,
@@ -516,55 +447,55 @@ internal fun DiscoverFilterPillRow(
     val pillRequesters = remember { mutableMapOf<String, FocusRequester>() }
     fun requesterFor(id: String): FocusRequester = pillRequesters.getOrPut(id) { FocusRequester() }
     var lastFocusedId by remember { mutableStateOf(pills.firstOrNull()?.id ?: DISCOVER_CLEAR_PILL_ID) }
+    var rowFocused by remember { mutableStateOf(false) }
 
-    LazyRow(
-        modifier = modifier
-            .fillMaxWidth()
-            .focusRequester(rowRequester)
-            .focusRestorer { requesterFor(lastFocusedId) },
-        contentPadding = PaddingValues(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items(items = pills, key = { it.id }) { spec ->
-            DiscoverFilterPill(
-                spec = spec.copy(
-                    onSelect = { option ->
-                        spec.onSelect(option)
-                        onExpandedChange(null)
-                    }
-                ),
-                expanded = expandedPicker == spec.id,
-                onExpandedChange = { shouldExpand -> onExpandedChange(if (shouldExpand) spec.id else null) },
-                focusRequester = requesterFor(spec.id),
-                upRequester = upRequester,
-                blockFocus = blockFocus,
-                onFocused = { lastFocusedId = spec.id },
-                onMoveDown = onMoveDown
-            )
-        }
-        item(key = DISCOVER_CLEAR_PILL_ID) {
-            DiscoverPillSurface(
-                active = false,
-                onClick = onReset,
-                modifier = Modifier
-                    .focusRequester(requesterFor(DISCOVER_CLEAR_PILL_ID))
-                    .focusProperties {
-                        if (blockFocus) canFocus = false
-                        if (upRequester != null) up = upRequester
-                    }
-                    .onFocusChanged { if (it.isFocused) lastFocusedId = DISCOVER_CLEAR_PILL_ID }
-                    .onPreviewKeyEvent { event ->
-                        event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
-                            event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
-                            onMoveDown()
-                    }
-            ) {
-                Text(
-                    text = stringResource(R.string.discover_filters_clear_all),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuvioTheme.colors.TextPrimary,
-                    maxLines = 1
+    SettingsTopBarSurface(focused = rowFocused, modifier = modifier) { onTabPositioned ->
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(rowRequester)
+                .focusRestorer { requesterFor(lastFocusedId) }
+                .onFocusChanged { rowFocused = it.hasFocus },
+            contentPadding = PaddingValues(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items(items = pills, key = { it.id }) { spec ->
+                DiscoverFilterPill(
+                    spec = spec.copy(
+                        onSelect = { option ->
+                            spec.onSelect(option)
+                            onExpandedChange(null)
+                        }
+                    ),
+                    expanded = expandedPicker == spec.id,
+                    onExpandedChange = { shouldExpand -> onExpandedChange(if (shouldExpand) spec.id else null) },
+                    focusRequester = requesterFor(spec.id),
+                    upRequester = upRequester,
+                    blockFocus = blockFocus,
+                    onFocused = { lastFocusedId = spec.id },
+                    onMoveDown = onMoveDown,
+                    onTabPositioned = onTabPositioned
+                )
+            }
+            item(key = DISCOVER_CLEAR_PILL_ID) {
+                SettingsTopBarTab(
+                    title = stringResource(R.string.discover_filters_clear_all),
+                    isSelected = false,
+                    onClick = onReset,
+                    onFocused = { lastFocusedId = DISCOVER_CLEAR_PILL_ID },
+                    onFocusedTabPositioned = onTabPositioned,
+                    modifier = Modifier
+                        .focusRequester(requesterFor(DISCOVER_CLEAR_PILL_ID))
+                        .focusProperties {
+                            if (blockFocus) canFocus = false
+                            if (upRequester != null) up = upRequester
+                        }
+                        .onPreviewKeyEvent { event ->
+                            event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
+                                event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
+                                onMoveDown()
+                        }
                 )
             }
         }
@@ -574,10 +505,11 @@ internal fun DiscoverFilterPillRow(
 private const val DISCOVER_CLEAR_PILL_ID = "clear_all"
 
 /**
- * Movies / Series / Anime segmented switch. Every segment is focusable; the selected one is
- * filled with the accent. Down moves to [downRequester] (the filter pill row).
+ * Movies / Series / Anime switch built from the same [SettingsTopBarTab] chips as the Sports /
+ * Live TV filters. Every chip is focusable and the selected one is tinted. Down moves to
+ * [downRequester] (the filter chip row); Up is left to the default search, which reaches the top
+ * navigation bar.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 internal fun DiscoverTypeSwitch(
     types: List<DiscoverOption>,
@@ -588,44 +520,25 @@ internal fun DiscoverTypeSwitch(
     onSelectType: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .clip(PillShape)
-            .background(Color.White.copy(alpha = 0.06f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        types.forEach { type ->
-            val selected = type.value == selectedType
-            Card(
-                onClick = { onSelectType(type.value) },
-                modifier = Modifier
-                    .focusRequester(requesterFor(type.value))
-                    .focusProperties {
-                        down = downRequester
-                        if (blockFocus) canFocus = false
-                    },
-                shape = CardDefaults.shape(shape = PillShape),
-                colors = CardDefaults.colors(
-                    containerColor = if (selected) NuvioTheme.colors.Secondary else Color.Transparent,
-                    focusedContainerColor = if (selected) NuvioTheme.colors.Secondary else Color.White.copy(alpha = 0.22f)
-                ),
-                border = CardDefaults.border(
-                    focusedBorder = Border(
-                        border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
-                        shape = PillShape
-                    )
-                ),
-                scale = CardDefaults.scale(focusedScale = 1.0f, pressedScale = 1.0f)
-            ) {
-                Text(
-                    text = type.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) NuvioTheme.colors.OnSecondary else NuvioTheme.colors.TextPrimary,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+    var barFocused by remember { mutableStateOf(false) }
+    SettingsTopBarSurface(focused = barFocused, modifier = modifier) { onTabPositioned ->
+        Row(
+            modifier = Modifier.onFocusChanged { barFocused = it.hasFocus },
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            types.forEach { type ->
+                SettingsTopBarTab(
+                    title = type.label,
+                    isSelected = type.value == selectedType,
+                    onClick = { onSelectType(type.value) },
+                    onFocusedTabPositioned = onTabPositioned,
+                    modifier = Modifier
+                        .focusRequester(requesterFor(type.value))
+                        .focusProperties {
+                            down = downRequester
+                            if (blockFocus) canFocus = false
+                        }
                 )
             }
         }

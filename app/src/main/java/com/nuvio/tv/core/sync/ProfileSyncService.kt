@@ -4,7 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.data.remote.supabase.SupabaseProfileLockState
+import com.nuvio.tv.data.local.ProfileLockStateDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseProfile
 import com.nuvio.tv.data.remote.supabase.SupabaseProfilePinVerifyResult
 import com.nuvio.tv.domain.model.UserProfile
@@ -47,7 +47,8 @@ class ProfileSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val postgrest: Postgrest,
     private val profileManager: ProfileManager,
-    private val syncClientIdentity: SyncClientIdentity
+    private val syncClientIdentity: SyncClientIdentity,
+    private val profileLockStateDataStore: ProfileLockStateDataStore
 ) {
     private val pullMutex = Mutex()
     private var pullFreshness = ProfilePullFreshness()
@@ -165,79 +166,43 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
-        try {
-            val response = withJwtRefreshRetry {
-                postgrest.rpc("sync_pull_profile_locks")
-            }
-            val remote = response.decodeList<SupabaseProfileLockState>()
-            val result = remote.associate { it.profileIndex to it.pinEnabled }
-            Result.success(result)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to pull profile lock states", e)
-            Result.failure(e)
-        }
-    }
+    // PINs are device-local (see ProfileLockStateDataStore): CinemaOS accounts have no profile PIN
+    // backend, and the upstream RPCs need an account this app never signs into, which is why PINs
+    // previously failed to save and were never enforced.
 
-    suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult = withContext(Dispatchers.IO) {
+    suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> =
+        runCatching { profileLockStateDataStore.currentStates() }
+
+    suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult =
         try {
-            val params = buildJsonObject {
-                put("p_profile_id", profileId)
-                put("p_pin", pin)
-                if (!currentPin.isNullOrBlank()) {
-                    put("p_current_pin", currentPin)
-                }
+            if (profileLockStateDataStore.setPin(profileId, pin, currentPin)) {
+                SetProfilePinResult.Success
+            } else {
+                SetProfilePinResult.CurrentPinRequired
             }
-            withJwtRefreshRetry {
-                postgrest.rpc("set_profile_pin", params)
-            }
-            SetProfilePinResult.Success
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set profile PIN", e)
-            if (isCurrentPinRequiredError(e)) {
-                SetProfilePinResult.CurrentPinRequired
-            } else {
-                SetProfilePinResult.Failure(e)
-            }
+            SetProfilePinResult.Failure(e)
+        }
+
+    suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = runCatching {
+        check(profileLockStateDataStore.clearPin(profileId, currentPin)) { "Incorrect PIN" }
+    }
+
+    suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = runCatching {
+        when (val result = profileLockStateDataStore.verify(profileId, pin)) {
+            ProfileLockStateDataStore.VerifyResult.Unlocked,
+            ProfileLockStateDataStore.VerifyResult.NoPin ->
+                SupabaseProfilePinVerifyResult(unlocked = true, retryAfterSeconds = 0)
+            ProfileLockStateDataStore.VerifyResult.Wrong ->
+                SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = 0)
+            is ProfileLockStateDataStore.VerifyResult.TooManyAttempts ->
+                SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = result.retryAfterSeconds)
         }
     }
 
-    private fun isCurrentPinRequiredError(e: Throwable): Boolean =
-        e.message?.contains("Current PIN is required", ignoreCase = true) == true
-
-    suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val params = buildJsonObject {
-                put("p_profile_id", profileId)
-                if (!currentPin.isNullOrBlank()) {
-                    put("p_current_pin", currentPin)
-                }
-            }
-            withJwtRefreshRetry {
-                postgrest.rpc("clear_profile_pin", params)
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear profile PIN", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = withContext(Dispatchers.IO) {
-        try {
-            val params = buildJsonObject {
-                put("p_profile_id", profileId)
-                put("p_pin", pin)
-            }
-            val response = withJwtRefreshRetry {
-                postgrest.rpc("verify_profile_pin", params)
-            }
-            val decoded = response.decodeList<SupabaseProfilePinVerifyResult>().firstOrNull()
-                ?: SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = 0)
-            Result.success(decoded)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to verify profile PIN", e)
-            Result.failure(e)
-        }
+    /** A deleted profile's id is reused by the next new profile, so its PIN must go with it. */
+    suspend fun removeLocalProfilePin(profileId: Int) {
+        runCatching { profileLockStateDataStore.removePin(profileId) }
     }
 }

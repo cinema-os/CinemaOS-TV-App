@@ -1794,6 +1794,9 @@
     <string name="profile_pin_overlay_mismatch">PINs did not match. Enter a new PIN again.</string>
     <string name="profile_pin_overlay_forgot_hint">Forgot PIN? Reset it from your CinemaOS account on nuvio website.</string>
     <string name="profile_pin_overlay_back_hint">Press back to cancel</string>
+    <string name="profile_pin_overlay_forgot_hint_local">Forgot PIN? PINs are stored only on this TV. Clearing the app\'s storage in Android settings removes them.</string>
+    <string name="profile_pin_pad_clear">Clear</string>
+    <string name="profile_pin_pad_delete">Delete</string>
 
 
     <!-- Essential addon setup wizard -->

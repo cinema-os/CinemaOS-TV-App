@@ -18,7 +18,6 @@ import com.nuvio.tv.domain.model.CosmeticEntitlement
 import com.nuvio.tv.domain.model.UserProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -260,32 +259,17 @@ class ProfileSelectionViewModel @Inject constructor(
 
     fun deleteProfile(id: Int) {
         viewModelScope.launch {
-            profileManager.deleteProfile(id)
+            if (profileManager.deleteProfile(id)) {
+                profileSyncService.removeLocalProfilePin(id)
+            }
             profileSyncService.deleteProfileData(id)
             profileSyncService.pushToRemote()
             refreshProfilePinStates()
         }
     }
 
-    fun refreshProfilePinStates() {
-        viewModelScope.launch {
-            var attempt = 0
-            while (attempt < 4) {
-                val result = profileSyncService.pullProfileLockStates()
-                if (result.isSuccess) {
-                    profileLockStateDataStore.replaceAll(result.getOrNull().orEmpty())
-                    return@launch
-                }
-                Log.e(
-                    "ProfileSelectionVM",
-                    "Failed to refresh profile PIN states (attempt=$attempt)",
-                    result.exceptionOrNull()
-                )
-                attempt++
-                delay(2000L * attempt)
-            }
-        }
-    }
+    /** PIN locks are device-local and [profilePinEnabled] observes them directly; nothing to fetch. */
+    fun refreshProfilePinStates() = Unit
 
     fun isProfilePinEnabled(profileId: Int): Boolean {
         return profilePinEnabled.value[profileId] == true
@@ -301,11 +285,6 @@ class ProfileSelectionViewModel @Inject constructor(
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
             val result = profileSyncService.setProfilePin(profileId, pin, currentPin)
-            // Server reporting CurrentPinRequired means a PIN exists remotely —
-            // reconcile local cache so we never forget it again.
-            if (result is SetProfilePinResult.Success || result is SetProfilePinResult.CurrentPinRequired) {
-                profileLockStateDataStore.setPinEnabled(profileId, true)
-            }
             _isPinOperationInProgress.value = false
             onComplete(result)
         }
@@ -316,9 +295,6 @@ class ProfileSelectionViewModel @Inject constructor(
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
             val success = profileSyncService.clearProfilePin(profileId, currentPin).isSuccess
-            if (success) {
-                profileLockStateDataStore.setPinEnabled(profileId, false)
-            }
             _isPinOperationInProgress.value = false
             onComplete(success)
         }

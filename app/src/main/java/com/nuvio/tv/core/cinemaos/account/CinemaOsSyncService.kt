@@ -2,6 +2,7 @@ package com.nuvio.tv.core.cinemaos.account
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.WatchProgressPreferences
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -48,6 +50,10 @@ import javax.inject.Singleton
  * IMDb id ("tt..."), "tmdb:<id>" as fallback, and "anime:<id>" for site anime rows.
  * Pulls write to the preference stores directly so they never echo back to the site.
  * Everything is a no-op while signed out.
+ *
+ * Profiles: the site has no profiles, so every pushed row carries a client-side marker that
+ * the phone app shares (see [CinemaOsProfileMarker]). Pulls import only rows whose marker
+ * matches the active profile, into that profile's own stores; unmarked rows belong to profile 1.
  */
 @Singleton
 class CinemaOsSyncService @Inject constructor(
@@ -56,7 +62,8 @@ class CinemaOsSyncService @Inject constructor(
     private val httpClient: OkHttpClient,
     private val tmdbService: TmdbService,
     private val watchProgressPreferences: WatchProgressPreferences,
-    private val libraryPreferences: LibraryPreferences
+    private val libraryPreferences: LibraryPreferences,
+    private val profileManager: ProfileManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pullMutex = Mutex()
@@ -76,6 +83,12 @@ class CinemaOsSyncService @Inject constructor(
         scope.launch {
             account.session.map { it?.uid }.distinctUntilChanged().collect { uid ->
                 if (uid != null) pullAll()
+            }
+        }
+        // Switching profile: fill the new profile's stores from its own rows.
+        scope.launch {
+            profileManager.activeProfileId.drop(1).distinctUntilChanged().collect {
+                if (account.isSignedIn) pullAll()
             }
         }
         scope.launch {
@@ -118,8 +131,9 @@ class CinemaOsSyncService @Inject constructor(
         _isSyncing.value = true
         try {
             flushQueue()
-            val a = runCatching { pullHistory() }.onFailure { Log.w(TAG, "history pull failed", it) }.isSuccess
-            val b = runCatching { pullWatchlist() }.onFailure { Log.w(TAG, "watchlist pull failed", it) }.isSuccess
+            val pid = profileManager.activeProfileId.value
+            val a = runCatching { pullHistory(pid) }.onFailure { Log.w(TAG, "history pull failed", it) }.isSuccess
+            val b = runCatching { pullWatchlist(pid) }.onFailure { Log.w(TAG, "watchlist pull failed", it) }.isSuccess
             if (a || b) {
                 val now = System.currentTimeMillis()
                 prefs.edit().putLong(K_LAST_SYNC, now).apply()
@@ -143,15 +157,17 @@ class CinemaOsSyncService @Inject constructor(
 
     // ---- Pull: mirrors syncWatchHistoryFromCloud ----
 
-    private suspend fun pullHistory() {
+    private suspend fun pullHistory(pid: Int) {
         val uid = account.session.value?.uid ?: return
         val (arr, _) = getJsonArray("/api/watch-history") ?: return
         val pendingIds = pendingDocIds("/api/watch-history", uid)
-        migrateTmdbEntries()
-        val local = watchProgressPreferences.allProgress.first()
+        migrateTmdbEntries(pid)
+        val local = watchProgressPreferences.observeAllProgress(pid).first()
             .associateBy { progressKey(it.contentId, it.season, it.episode) }
         val seenLocalKeys = HashSet<String>()
         val newSynced = HashSet<String>()
+        val allCloud = HashSet<String>()
+        val owners = HashMap<String, String>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val idStr = o.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" } ?: continue
@@ -162,6 +178,10 @@ class CinemaOsSyncService @Inject constructor(
             val episode = if (isSeries && o.has("episode") && !o.isNull("episode")) o.optInt("episode") else null
             val docId = o.optString("docId").takeIf { it.isNotBlank() }
                 ?: historyDocId(uid, mediaType, idStr, season, episode)
+            val owner = CinemaOsProfileMarker.parse(o.optString("description")).profileId
+            allCloud += docId
+            owners[docId] = owner
+            if (owner != pid.toString()) continue // another profile's row
             newSynced += docId
             if (docId in pendingIds) continue // a queued local write wins over the cloud snapshot
             val durationMs = (o.optDouble("duration", 0.0) * 1000).toLong()
@@ -185,7 +205,7 @@ class CinemaOsSyncService @Inject constructor(
             if (isAnime && contentId.startsWith("kitsu:")) {
                 // Drop the stale pre-mapping entry stored under the raw AniList id.
                 local[progressKey("anime:$idStr", season, episode)]?.let {
-                    watchProgressPreferences.removeProgress(it.contentId, it.season, it.episode)
+                    watchProgressPreferences.removeProgress(it.contentId, it.season, it.episode, pid)
                 }
             }
             val key = progressKey(contentId, season, episode)
@@ -203,7 +223,8 @@ class CinemaOsSyncService @Inject constructor(
                         backdrop = existing.backdrop?.takeIf { it.isNotBlank() } ?: art?.backdrop ?: cloudBackdrop,
                         poster = existing.poster?.takeIf { it.isNotBlank() } ?: art?.poster,
                         logo = existing.logo?.takeIf { it.isNotBlank() } ?: art?.logo
-                    )
+                    ),
+                    pid
                 )
                 continue
             }
@@ -225,26 +246,29 @@ class CinemaOsSyncService @Inject constructor(
                     duration = durationMs,
                     lastWatched = maxOf(watchedAt, existing?.lastWatched ?: 0L),
                     source = WatchProgress.SOURCE_LOCAL
-                )
+                ),
+                pid
             )
             // Drop a stale duplicate stored under the TMDB id for the same content.
             if (tmdbNum != null && !contentId.startsWith("tmdb:")) {
                 val dupKey = progressKey("tmdb:$tmdbNum", season, episode)
-                local[dupKey]?.let { watchProgressPreferences.removeProgress(it.contentId, it.season, it.episode) }
+                local[dupKey]?.let { watchProgressPreferences.removeProgress(it.contentId, it.season, it.episode, pid) }
             }
         }
         // Rows previously pulled that are gone from the cloud (and have no pending write) were
         // deleted on another device. The server returns at most 100 rows, so only trust a full view.
+        // A row now owned by another profile was not deleted, so it is kept locally.
         if (arr.length() < HISTORY_PAGE_LIMIT) {
-            val previous = prefs.getStringSet(K_SYNCED_HISTORY, emptySet()).orEmpty()
-            for (docId in previous - newSynced - pendingIds) {
+            val previous = syncedSet(K_SYNCED_HISTORY, pid)
+            for (docId in previous - allCloud - pendingIds) {
                 val k = historyKeyFromDocId(uid, docId) ?: continue
                 val (contentKey, season, episode) = k
                 val contentId = resolveDocContentId(contentKey) ?: continue
-                watchProgressPreferences.removeProgress(contentId, season, episode)
+                watchProgressPreferences.removeProgress(contentId, season, episode, pid)
             }
         }
-        prefs.edit().putStringSet(K_SYNCED_HISTORY, newSynced).apply()
+        prefs.edit().putStringSet(syncedKey(K_SYNCED_HISTORY, pid), newSynced).apply()
+        saveOwners(K_HISTORY_OWNERS, owners)
     }
 
     /** Splits "<uid>_<type>_<id>[_s<n>][_e<n>]" into ("<type>_<id>", season, episode). */
@@ -269,7 +293,7 @@ class CinemaOsSyncService @Inject constructor(
 
     // ---- Pull: mirrors syncWatchlistFromCloud ----
 
-    private suspend fun pullWatchlist() {
+    private suspend fun pullWatchlist(pid: Int) {
         val uid = account.session.value?.uid ?: return
         val pendingIds = pendingDocIds("/api/watchlist", uid)
         val rows = mutableListOf<JSONObject>()
@@ -282,10 +306,16 @@ class CinemaOsSyncService @Inject constructor(
             offset = next
         }
         val newSynced = HashSet<String>()
+        val allCloud = HashSet<String>()
+        val owners = HashMap<String, String>()
         for (o in rows) {
             val idStr = o.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" } ?: continue
             val movieType = o.optString("movie_type", "movie")
             val docId = watchlistDocId(uid, movieType, idStr)
+            val marker = CinemaOsProfileMarker.parse(o.optString("description"))
+            allCloud += docId
+            owners[docId] = marker.profileId
+            if (marker.profileId != pid.toString()) continue // another profile's row
             newSynced += docId
             if (docId in pendingIds) continue
             val isAnime = movieType == "anime"
@@ -295,7 +325,7 @@ class CinemaOsSyncService @Inject constructor(
                 val kitsu = enrich("anime:$idStr", null, true, true, o.optString("name"))?.kitsuId
                 if (kitsu != null) { prefs.edit().putString("k2a_$kitsu", idStr).apply(); "kitsu:$kitsu" } else "anime:$idStr"
             } else resolveContentId(idStr.toIntOrNull() ?: continue, if (isSeries) "tv" else "movie")
-            if (libraryPreferences.containsItem(id, type)) continue
+            if (libraryPreferences.containsItem(id, type, pid)) continue
             val images = if (id.startsWith("tt")) {
                 runCatching { tmdbService.fetchImdbImages(id, if (isSeries) "tv" else "movie") }.getOrNull()
             } else null
@@ -308,26 +338,60 @@ class CinemaOsSyncService @Inject constructor(
                         ?: if (id.startsWith("tt")) "https://images.metahub.space/poster/medium/$id/img" else null,
                     posterShape = PosterShape.POSTER,
                     background = backdropUrl(o.optString("backdrop_path")) ?: images?.backdropUrl,
-                    description = o.optString("description").takeIf { it.isNotBlank() },
+                    description = marker.description.takeIf { it.isNotBlank() },
                     releaseInfo = null,
                     imdbRating = null,
                     genres = emptyList(),
                     addonBaseUrl = null,
                     addedAt = toMs(o.opt("addedAt")).takeIf { it > 0 } ?: System.currentTimeMillis()
-                )
+                ),
+                pid
             )
         }
         // Rows synced before but missing now (no pending write) were removed on another device.
-        val previous = prefs.getStringSet(K_SYNCED_WATCHLIST, emptySet()).orEmpty()
-        for (docId in previous - newSynced - pendingIds) {
+        val previous = syncedSet(K_SYNCED_WATCHLIST, pid)
+        for (docId in previous - allCloud - pendingIds) {
             val rest = docId.removePrefix("${uid}_")
             val movieType = rest.substringBefore('_')
             val idStr = rest.substringAfter('_', "")
             val contentId = resolveDocContentId("${movieType}_$idStr") ?: continue
-            libraryPreferences.removeItem(contentId, if (movieType == "movie") "movie" else "series")
+            libraryPreferences.removeItem(contentId, if (movieType == "movie") "movie" else "series", pid)
         }
-        prefs.edit().putStringSet(K_SYNCED_WATCHLIST, newSynced).apply()
+        prefs.edit().putStringSet(syncedKey(K_SYNCED_WATCHLIST, pid), newSynced).apply()
+        saveOwners(K_WATCHLIST_OWNERS, owners)
     }
+
+    // ---- Profile ownership helpers ----
+
+    /** Per-profile key; profile 1 keeps reading the pre-profiles key so existing state carries over. */
+    private fun syncedKey(base: String, pid: Int) = if (pid == 1) base else "${base}_p$pid"
+
+    private fun syncedSet(base: String, pid: Int): Set<String> =
+        prefs.getStringSet(syncedKey(base, pid), emptySet()).orEmpty()
+
+    private fun saveOwners(key: String, owners: Map<String, String>) {
+        val o = JSONObject()
+        owners.forEach { (doc, owner) -> o.put(doc, owner) }
+        prefs.edit().putString(key, o.toString()).apply()
+    }
+
+    /** Profile id that owned [docId] at the last pull, or null when unknown (not seen yet). */
+    private fun ownerOf(key: String, docId: String): String? =
+        runCatching { JSONObject(prefs.getString(key, "{}") ?: "{}").optString(docId) }
+            .getOrNull()?.takeIf { it.isNotBlank() }
+
+    /**
+     * The server never rewrites a row's description on conflict, so the first profile to write a
+     * doc owns it. A write from another profile would change the owner's row while it stays
+     * tagged to them, so such writes stay local-only.
+     */
+    private fun ownedByOtherProfile(ownersKey: String, docId: String, pid: Int): Boolean {
+        val owner = ownerOf(ownersKey, docId) ?: return false
+        return owner != pid.toString()
+    }
+
+    private fun profileName(pid: Int): String =
+        profileManager.profiles.value.firstOrNull { it.id == pid }?.name.orEmpty()
 
     // ---- Push: mirrors addToWatchHistory / removeFromWatchHistory / saveProgressBeacon ----
 
@@ -340,16 +404,17 @@ class CinemaOsSyncService @Inject constructor(
         val key = progressKey(progress.contentId, progress.season, progress.episode)
         val now = System.currentTimeMillis()
         val last = lastPushAt[key] ?: 0L
+        val pid = profileManager.activeProfileId.value
         if (now - last >= PUSH_INTERVAL_MS || progress.isCompleted()) {
             lastPushAt[key] = now
             pendingPush.remove(key)
-            scope.launch { pushProgress(progress) }
+            scope.launch { pushProgress(progress, pid) }
         } else if (pendingPush.put(key, progress) == null) {
             scope.launch {
                 delay(PUSH_INTERVAL_MS - (now - last))
                 pendingPush.remove(key)?.let {
                     lastPushAt[key] = System.currentTimeMillis()
-                    pushProgress(it)
+                    pushProgress(it, pid)
                 }
             }
         }
@@ -361,7 +426,8 @@ class CinemaOsSyncService @Inject constructor(
         val key = progressKey(progress.contentId, progress.season, progress.episode)
         pendingPush.remove(key)
         lastPushAt[key] = System.currentTimeMillis()
-        scope.launch { pushProgress(progress) }
+        val pid = profileManager.activeProfileId.value
+        scope.launch { pushProgress(progress, pid) }
     }
 
     /** Watched/completed marks: push with progress == duration. */
@@ -381,6 +447,7 @@ class CinemaOsSyncService @Inject constructor(
     /** Mirrors removeFromWatchHistory: DELETE /api/watch-history?id=docId. */
     fun onProgressRemoved(contentId: String, season: Int?, episode: Int?) {
         val uid = account.session.value?.uid ?: return
+        val pid = profileManager.activeProfileId.value
         scope.launch {
             runCatching {
                 val anilist = anilistFor(contentId)
@@ -390,13 +457,14 @@ class CinemaOsSyncService @Inject constructor(
                 val mediaId = (if (isAnime) anilist
                 else resolveTmdbId(contentId, if (isSeries) "tv" else "movie")?.toString()) ?: return@launch
                 val docId = historyDocId(uid, mediaType, mediaId, season, episode)
+                if (ownedByOtherProfile(K_HISTORY_OWNERS, docId, pid)) return@launch
                 enqueue(uid, "/api/watch-history", "DELETE", docId, "")
                 flushQueue()
             }.onFailure { Log.w(TAG, "history delete failed", it) }
         }
     }
 
-    private suspend fun pushProgress(p: WatchProgress) {
+    private suspend fun pushProgress(p: WatchProgress, pid: Int) {
         runCatching {
             val uid = account.session.value?.uid ?: return
             val anilist = anilistFor(p.contentId)
@@ -412,7 +480,7 @@ class CinemaOsSyncService @Inject constructor(
                 .put("progress", p.position / 1000)
                 .put("duration", p.duration / 1000)
             item.put("backdrop_path", toBackdropPath(p.backdrop))
-            item.put("description", "")
+            CinemaOsProfileMarker.mark(item, pid.toString(), profileName(pid), "")
             if (isSeries && p.episode != null) {
                 if (!isAnime && p.season != null) item.put("season", p.season)
                 item.put("episode", p.episode)
@@ -420,6 +488,7 @@ class CinemaOsSyncService @Inject constructor(
                 if (!isAnime && p.season != null) item.put("lastPosition", "Season ${p.season}, Episode ${p.episode}")
             }
             val docId = historyDocId(uid, mediaType, mediaId, if (isAnime) null else p.season, p.episode)
+            if (ownedByOtherProfile(K_HISTORY_OWNERS, docId, pid)) return
             enqueue(uid, "/api/watch-history", "POST", docId, JSONObject().put("userId", uid).put("item", item).toString())
             flushQueue()
         }.onFailure { Log.w(TAG, "progress push failed", it) }
@@ -429,6 +498,7 @@ class CinemaOsSyncService @Inject constructor(
 
     fun onLibraryChanged(item: LibraryEntryInput, added: Boolean) {
         val uid = account.session.value?.uid ?: return
+        val pid = profileManager.activeProfileId.value
         scope.launch {
             runCatching {
                 val anilist = anilistFor(item.itemId)
@@ -438,11 +508,12 @@ class CinemaOsSyncService @Inject constructor(
                 val mediaId = (if (isAnime) anilist
                 else (item.tmdbId ?: resolveTmdbId(item.itemId, type))?.toString()) ?: return@launch
                 val docId = watchlistDocId(uid, type, mediaId)
+                if (ownedByOtherProfile(K_WATCHLIST_OWNERS, docId, pid)) return@launch
                 if (added) {
                     val it = JSONObject().put("id", mediaId).put("name", item.title.ifBlank { "Unknown" })
                         .put("movie_type", type)
                         .put("backdrop_path", toBackdropPath(item.background))
-                        .put("description", item.description.orEmpty())
+                    CinemaOsProfileMarker.mark(it, pid.toString(), profileName(pid), item.description.orEmpty())
                     enqueue(uid, "/api/watchlist", "POST", docId, JSONObject().put("userId", uid).put("item", it).toString())
                 } else {
                     enqueue(uid, "/api/watchlist", "DELETE", docId, "")
@@ -675,8 +746,8 @@ class CinemaOsSyncService @Inject constructor(
     }
 
     /** Moves entries stored under "tmdb:<id>" to the IMDb id when a mapping exists, merging by newest. */
-    private suspend fun migrateTmdbEntries() {
-        val all = watchProgressPreferences.allProgress.first()
+    private suspend fun migrateTmdbEntries(pid: Int) {
+        val all = watchProgressPreferences.observeAllProgress(pid).first()
         val byKey = all.associateBy { progressKey(it.contentId, it.season, it.episode) }
         for (e in all) {
             if (!e.contentId.startsWith("tmdb:")) continue
@@ -685,7 +756,7 @@ class CinemaOsSyncService @Inject constructor(
             val imdb = resolveContentId(n, if (isSeries) "tv" else "movie", e.name)
             if (imdb.startsWith("tmdb:")) continue
             val target = byKey[progressKey(imdb, e.season, e.episode)]
-            watchProgressPreferences.removeProgress(e.contentId, e.season, e.episode)
+            watchProgressPreferences.removeProgress(e.contentId, e.season, e.episode, pid)
             if (target != null && target.lastWatched >= e.lastWatched) continue
             val videoId = if (e.season != null && e.episode != null) "$imdb:${e.season}:${e.episode}" else imdb
             watchProgressPreferences.saveProgress(
@@ -695,7 +766,8 @@ class CinemaOsSyncService @Inject constructor(
                     poster = e.poster ?: target?.poster,
                     backdrop = e.backdrop ?: target?.backdrop,
                     logo = e.logo ?: target?.logo
-                )
+                ),
+                pid
             )
         }
     }
@@ -742,5 +814,46 @@ class CinemaOsSyncService @Inject constructor(
         const val K_QUEUE = "pending_writes"
         const val K_SYNCED_HISTORY = "synced_history_docs"
         const val K_SYNCED_WATCHLIST = "synced_watchlist_docs"
+        const val K_HISTORY_OWNERS = "history_doc_owners"
+        const val K_WATCHLIST_OWNERS = "watchlist_doc_owners"
+    }
+}
+
+/**
+ * Client-side profile marker for rows on the CinemaOS account (shared with the phone app).
+ *
+ * The site API strips unknown JSON keys and stores only fixed columns, so the marker lives in
+ * the stored `description`: line 1 is `{"profile_id":"<id>","profile_name":"<name>"}`, then
+ * a newline and the real description. `profile_id`/`profile_name` are also sent as top-level item
+ * fields in case the server starts storing them. No marker (or unparsable) means profile "1".
+ */
+object CinemaOsProfileMarker {
+    const val PRIMARY_PROFILE_ID = "1"
+
+    data class Parsed(val profileId: String, val profileName: String?, val description: String)
+
+    fun mark(item: JSONObject, profileId: String, profileName: String, description: String): JSONObject {
+        val line = JSONObject().put("profile_id", profileId).put("profile_name", profileName).toString()
+        return item
+            .put("profile_id", profileId)
+            .put("profile_name", profileName)
+            .put("description", line + "\n" + description)
+    }
+
+    fun parse(raw: String?): Parsed {
+        val text = raw.orEmpty()
+        val first = text.substringBefore('\n').trim()
+        if (first.startsWith("{")) {
+            val o = runCatching { JSONObject(first) }.getOrNull()
+            val id = o?.optString("profile_id")?.trim().orEmpty()
+            if (id.isNotEmpty()) {
+                return Parsed(
+                    profileId = id,
+                    profileName = o?.optString("profile_name")?.takeIf { it.isNotBlank() },
+                    description = text.substringAfter('\n', "")
+                )
+            }
+        }
+        return Parsed(PRIMARY_PROFILE_ID, null, text)
     }
 }

@@ -69,6 +69,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.LocalRootTopInset
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.providers.CinemaosPill
@@ -90,7 +91,8 @@ private const val MAX_STRIP_POSTERS = 3
  * Continue Watching titles, with a side panel for the focused day, or a List view of the month.
  *
  * Focus: entering focuses the selected day (today by default); arrows move across the grid; Up from
- * the first week reaches the header (prev / next month, Today, List view); Right from the last column
+ * the first week reaches the header (prev / next month, Today, List view) and Up from the header
+ * leaves to the top navigation bar; Right from the last column
  * or OK on a day moves into the day panel; Left or Back from the panel returns to the day. Back from a
  * title's details restores focus to the panel / list row that opened it.
  */
@@ -157,11 +159,14 @@ fun CalendarScreen(
     }
 
     val background = NuvioTheme.colors.Background
+    // The root route is not inset for us (withTopInset = false), so clear the floating top nav bar
+    // here like Sports does; the header then sits directly below it and Up reaches it.
+    val topPadding = maxOf(LocalRootTopInset.current + 4.dp, 22.dp)
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(background)
-            .padding(start = 40.dp, end = 32.dp, top = 22.dp, bottom = 18.dp)
+            .padding(start = 40.dp, end = 32.dp, top = topPadding, bottom = 18.dp)
             .onFocusChanged { pageHasFocus = it.hasFocus }
             .focusRequester(contentFocusRequester)
             .focusRestorer()

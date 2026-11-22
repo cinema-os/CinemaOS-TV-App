@@ -270,7 +270,7 @@ internal fun DiscoverSection(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = NuvioTheme.spacing.xxxl),
-        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
     ) {
         AnimatedVisibility(
             visible = headerVisible,
@@ -280,32 +280,19 @@ internal fun DiscoverSection(
             Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
                 // The floating navigation pill overlays the top edge in that layout.
                 if (!showBuiltInHeader) Spacer(modifier = Modifier.height(32.dp))
+                // Compact header: title and the Movies / Series / Anime chips share one line.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.discover_title),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = NuvioTheme.colors.TextPrimary,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = stringResource(R.string.discover_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = NuvioTheme.colors.TextTertiary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(bottom = 3.dp)
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.discover_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = NuvioTheme.colors.TextPrimary,
+                        maxLines = 1
+                    )
                     DiscoverTypeSwitch(
                         types = typeOptions,
                         selectedType = uiState.selectedDiscoverType,
@@ -315,7 +302,8 @@ internal fun DiscoverSection(
                         onSelectType = { type ->
                             expandedPicker = null
                             onSelectType(type)
-                        }
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
 

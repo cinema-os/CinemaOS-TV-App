@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -211,9 +212,17 @@ internal fun CinemaOsAccountSettingsContent(
                     onClick = { showProfileEditor = true },
                     modifier = Modifier.focusRequester(editProfileRequester)
                 )
+                if (profiles.size > 1) {
+                    SettingsActionRow(
+                        title = "Switch profile",
+                        subtitle = "Go back to Who's watching",
+                        leadingIcon = Icons.Default.SwitchAccount,
+                        onClick = { com.nuvio.tv.core.profile.ProfileSwitchRequests.request() }
+                    )
+                }
                 SettingsActionRow(
                     title = "Manage profiles",
-                    subtitle = "Add, switch or remove profiles",
+                    subtitle = "Add or remove profiles, and set a PIN",
                     leadingIcon = Icons.Default.People,
                     onClick = onNavigateToManageProfiles
                 )

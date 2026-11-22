@@ -48,7 +48,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -2117,16 +2119,15 @@ private fun ProfilePinOverlay(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    val density = LocalDensity.current
-    val keyboardState = rememberKeyboardVisibilityState()
-    val keyboardController = LocalSoftwareKeyboardController.current
+    // TV number pad: D-pad users pick digits on screen; remote number keys and a hardware
+    // keyboard still type directly (handled in onPreviewKeyEvent below).
     val focusRequester = remember(state) { FocusRequester() }
     val isSingleEntryMode = state !is ProfilePinOverlayState.Set
     var pin by remember(state) { mutableStateOf("") }
     var draftPin by remember(state) { mutableStateOf<String?>(null) }
     var entryStage by remember(state) { mutableStateOf(ProfilePinEntryStage.Create) }
     var internalErrorMessage by remember(state) { mutableStateOf<String?>(null) }
-    var isInputFocused by remember(state) { mutableStateOf(false) }
+    val isInputFocused = true
     val shakeOffset = remember(state) { androidx.compose.animation.core.Animatable(0f) }
     val cursorAlpha by rememberInfiniteTransition(label = "pinCursor").animateFloat(
         initialValue = 0.25f,
@@ -2140,7 +2141,7 @@ private fun ProfilePinOverlay(
     val resolvedErrorMessage = if (isSingleEntryMode) errorMessage else internalErrorMessage ?: errorMessage
     val isErrorState = !resolvedErrorMessage.isNullOrEmpty()
     val mismatchMessage = stringResource(R.string.profile_pin_overlay_mismatch)
-    val shouldUseCompactLayout = keyboardState.isVisible
+    val shouldUseCompactLayout = false
     val headerFontSize by animateFloatAsState(
         targetValue = if (shouldUseCompactLayout) 28f else 42f,
         animationSpec = tween(NuvioMotion.tokens.durations.fast),
@@ -2181,17 +2182,28 @@ private fun ProfilePinOverlay(
         animationSpec = tween(NuvioMotion.tokens.durations.fast),
         label = "pinBackHintGap"
     )
-    val contentBottomPadding = if (keyboardState.isVisible) {
-        with(density) { keyboardState.bottomPx.toDp() } + 28.dp
-    } else {
-        28.dp
+    val contentBottomPadding = 28.dp
+
+    BackHandler(onBack = onDismiss)
+
+    fun appendDigit(digit: Char) {
+        if (isWorking || pin.length >= ProfilePinLength) return
+        pin += digit
+        if (!errorMessage.isNullOrEmpty()) onClearError()
+        if (!isSingleEntryMode) internalErrorMessage = null
     }
 
-    // The hidden PIN field is the overlay's only focusable, so focus always returns to it. It does
-    // not open the keyboard on focus (that reopened it right after Back closed it, so Back could
-    // never leave the overlay); the keyboard opens with the overlay and on OK instead. Back while
-    // the keyboard is open only closes it, as the keyboard handles that key itself.
-    BackHandler(onBack = onDismiss)
+    fun deleteDigit() {
+        if (isWorking || pin.isEmpty()) return
+        pin = pin.dropLast(1)
+        if (!errorMessage.isNullOrEmpty()) onClearError()
+        if (!isSingleEntryMode) internalErrorMessage = null
+    }
+
+    fun clearDigits() {
+        if (isWorking) return
+        pin = ""
+    }
 
     suspend fun playErrorAnimation() {
         shakeOffset.snapTo(0f)
@@ -2203,7 +2215,6 @@ private fun ProfilePinOverlay(
     LaunchedEffect(state) {
         repeat(2) { withFrameNanos { } }
         runCatching { focusRequester.requestFocus() }
-        keyboardController?.show()
     }
 
     LaunchedEffect(errorMessage) {
@@ -2244,12 +2255,6 @@ private fun ProfilePinOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures {
-                    runCatching { focusRequester.requestFocus() }
-                    keyboardController?.show()
-                }
-            }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (native.action != AndroidKeyEvent.ACTION_DOWN) {
@@ -2262,30 +2267,17 @@ private fun ProfilePinOverlay(
                         true
                     }
 
-                    AndroidKeyEvent.KEYCODE_DPAD_CENTER,
-                    AndroidKeyEvent.KEYCODE_ENTER,
-                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                        runCatching { focusRequester.requestFocus() }
-                        keyboardController?.show()
-                        true
-                    }
-
                     AndroidKeyEvent.KEYCODE_DEL,
                     AndroidKeyEvent.KEYCODE_CLEAR -> {
-                        if (!isWorking && pin.isNotEmpty()) {
-                            pin = pin.dropLast(1)
-                            if (!errorMessage.isNullOrEmpty()) onClearError()
-                            if (!isSingleEntryMode) internalErrorMessage = null
-                        }
+                        deleteDigit()
                         true
                     }
 
+                    // OK/Enter and the arrows fall through to the focused number pad key.
                     else -> {
                         val digit = keyCodeToDigit(native.keyCode)
-                        if (digit != null && !isWorking && pin.length < ProfilePinLength) {
-                            pin += digit
-                            if (!errorMessage.isNullOrEmpty()) onClearError()
-                            if (!isSingleEntryMode) internalErrorMessage = null
+                        if (digit != null) {
+                            appendDigit(digit)
                             true
                         } else {
                             false
@@ -2320,10 +2312,16 @@ private fun ProfilePinOverlay(
             NuvioTheme.colors.TextSecondary
         }
 
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = ProfileSelectionSpacing.ScreenPaddingHorizontal),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
             verticalArrangement = if (shouldUseCompactLayout) Arrangement.Top else Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -2348,7 +2346,7 @@ private fun ProfilePinOverlay(
                 isErrorState = isErrorState,
                 isInputFocused = isInputFocused,
                 cursorAlpha = cursorAlpha,
-                compactMode = shouldUseCompactLayout,
+                compactMode = true,
                 modifier = Modifier.graphicsLayer {
                     translationX = shakeOffset.value
                 }
@@ -2375,7 +2373,7 @@ private fun ProfilePinOverlay(
             ) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = stringResource(R.string.profile_pin_overlay_forgot_hint),
+                    text = stringResource(R.string.profile_pin_overlay_forgot_hint_local),
                     modifier = Modifier.widthIn(max = ProfileSelectionSpacing.PinSupportMaxWidth),
                     color = NuvioTheme.colors.TextTertiary,
                     fontSize = 14.sp,
@@ -2397,36 +2395,89 @@ private fun ProfilePinOverlay(
             Spacer(modifier = Modifier.height(contentBottomPadding))
         }
 
-        val pinFieldLabel = stringResource(R.string.profile_pin_enter)
+        Spacer(modifier = Modifier.width(48.dp))
 
-        BasicTextField(
-            value = pin,
-            onValueChange = { value ->
-                if (!isWorking) {
-                    pin = value.filter(Char::isDigit).take(ProfilePinLength)
-                    if (!errorMessage.isNullOrEmpty()) onClearError()
-                    if (!isSingleEntryMode) internalErrorMessage = null
-                }
-            },
-            modifier = Modifier
-                .size(NuvioTheme.spacing.hairline)
-                .graphicsLayer { alpha = 0f }
-                .semantics { contentDescription = pinFieldLabel }
-                .focusRequester(focusRequester)
-                .onFocusChanged { state ->
-                    isInputFocused = state.isFocused
-                },
-            singleLine = true,
-            textStyle = TextStyle(color = Color.Transparent),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.NumberPassword,
-                imeAction = ImeAction.Done,
-                showKeyboardOnFocus = false
-            ),
-            cursorBrush = SolidColor(Color.Transparent)
+        ProfilePinNumberPad(
+            firstKeyFocusRequester = focusRequester,
+            enabled = !isWorking,
+            onDigit = { appendDigit(it) },
+            onDelete = { deleteDigit() },
+            onClear = { clearDigits() }
         )
+        }
     }
 }
+
+/** 3x4 D-pad number pad for PIN entry (1-9, Clear, 0, Delete). */
+@Composable
+private fun ProfilePinNumberPad(
+    firstKeyFocusRequester: FocusRequester,
+    enabled: Boolean,
+    onDigit: (Char) -> Unit,
+    onDelete: () -> Unit,
+    onClear: () -> Unit
+) {
+    val rows = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf(PinPadClear, "0", PinPadDelete)
+    )
+    val clearLabel = stringResource(R.string.profile_pin_pad_clear)
+    val deleteLabel = stringResource(R.string.profile_pin_pad_delete)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        rows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { key ->
+                    val label = when (key) {
+                        PinPadClear -> clearLabel
+                        PinPadDelete -> deleteLabel
+                        else -> key
+                    }
+                    Button(
+                        onClick = {
+                            if (enabled) {
+                                when (key) {
+                                    PinPadClear -> onClear()
+                                    PinPadDelete -> onDelete()
+                                    else -> onDigit(key.first())
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(width = 84.dp, height = 60.dp)
+                            .then(if (key == "1") Modifier.focusRequester(firstKeyFocusRequester) else Modifier)
+                            .semantics { contentDescription = label },
+                        contentPadding = PaddingValues(0.dp),
+                        shape = ButtonDefaults.shape(RoundedCornerShape(14.dp)),
+                        colors = ButtonDefaults.colors(
+                            containerColor = Color.White.copy(alpha = 0.08f),
+                            contentColor = NuvioTheme.colors.TextPrimary,
+                            focusedContainerColor = Color.White,
+                            focusedContentColor = Color.Black
+                        ),
+                        scale = ButtonDefaults.scale(focusedScale = 1.06f)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = label,
+                                fontSize = if (key.length == 1) 26.sp else 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val PinPadClear = "clear"
+private const val PinPadDelete = "delete"
 
 @Composable
 private fun ProfilePinBoxes(

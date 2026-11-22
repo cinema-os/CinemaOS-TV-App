@@ -294,6 +294,9 @@ open class MainActivity : ComponentActivity() {
     lateinit var cinemaOsSyncService: com.nuvio.tv.core.cinemaos.account.CinemaOsSyncService
 
     @Inject
+    lateinit var profileLockStateDataStore: com.nuvio.tv.data.local.ProfileLockStateDataStore
+
+    @Inject
     lateinit var addonRepository: AddonRepository
 
     @Inject
@@ -467,24 +470,19 @@ open class MainActivity : ComponentActivity() {
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
-            var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
-
-            LaunchedEffect(authState, profiles) {
-                if (authState is AuthState.FullAccount) {
-                    profileSyncService.pullProfileLockStates()
-                        .onSuccess { profilePinStates = it }
-                        .onFailure { profilePinStates = emptyMap() }
-                } else {
-                    profilePinStates = emptyMap()
-                }
+            // PIN locks are device-local; null until the store has loaded so nothing auto-skips a lock.
+            val profilePinStatesFlow = remember(profileLockStateDataStore) {
+                profileLockStateDataStore.pinEnabled.map<Map<Int, Boolean>, Map<Int, Boolean>?> { it }
             }
+            val profilePinStatesOrNull by profilePinStatesFlow.collectAsState(initial = null)
+            val profilePinStates = profilePinStatesOrNull.orEmpty()
 
             val activeProfileHasPin = remember(activeProfileId, profilePinStates) {
                 profilePinStates[activeProfileId] == true
             }
 
             var profileSwitchedManually by remember { mutableStateOf(false) }
-            val shouldAutoSelectProfile = rememberLastProfileEnabled &&
+            val shouldAutoSelectProfile = profilePinStatesOrNull != null && rememberLastProfileEnabled &&
                 hasEverSelectedProfile && !activeProfileHasPin &&
                 !hasSelectedProfileThisSession && !profileSwitchedManually
             if (shouldAutoSelectProfile && !splashTriggered) {
@@ -760,7 +758,8 @@ open class MainActivity : ComponentActivity() {
 
                     var startupDestination = StartupDestination.Loading
                     val surfaceContentReady = hasSeenAuthQrOnFirstLaunch != null &&
-                        authState !is AuthState.Loading
+                        authState !is AuthState.Loading &&
+                        profilePinStatesOrNull != null
 
                     if (!surfaceContentReady) {
                         // Still loading auth state; nothing to show yet.
@@ -1274,6 +1273,12 @@ open class MainActivity : ComponentActivity() {
                             focusedSplashCacheKey = null
                             focusedSplashTheme = null
                             hasSelectedProfileThisSession = false
+                        }
+                        // "Switch profile" from Settings > CinemaOS Account.
+                        LaunchedEffect(Unit) {
+                            com.nuvio.tv.core.profile.ProfileSwitchRequests.requests.collect {
+                                handleSwitchProfile()
+                            }
                         }
                         Box(modifier = Modifier.fillMaxSize()) {
                             CompositionLocalProvider(LocalNavViewModelStoreOwner provides navViewModelStoreOwner) {
@@ -1963,9 +1968,9 @@ private const val USE_CINEMA_TOP_BAR = true
 /** CinemaOS: Discover is always a top-bar tab (and Search shows only search UI). */
 private const val CINEMAOS_DISCOVER_TAB = true
 
-/** CinemaOS: no first-run setup and no profile picker. Flip to restore upstream flows. */
+/** CinemaOS: no first-run setup; "Who's watching" shows when there is more than one profile or a PIN. */
 private const val CINEMAOS_SHOW_ONBOARDING = false
-private const val CINEMAOS_SHOW_PROFILES = false
+private const val CINEMAOS_SHOW_PROFILES = true
 
 @Composable
 private fun CinemaTopBarScaffold(
