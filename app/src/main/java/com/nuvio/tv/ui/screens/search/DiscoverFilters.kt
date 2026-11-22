@@ -549,7 +549,7 @@ class DiscoverTmdbSource @Inject constructor(
      * TMDB discover has no title logos, so fetch them (bounded parallelism, cached) for the cards,
      * which show the logo over the artwork like Home does and fall back to the title text.
      */
-    private suspend fun withTitleLogos(items: List<MetaPreview>, isSeries: Boolean): List<MetaPreview> =
+    suspend fun withTitleLogos(items: List<MetaPreview>, isSeries: Boolean): List<MetaPreview> =
         coroutineScope {
             val gate = Semaphore(LOGO_FETCH_PARALLELISM)
             items.map { item ->

@@ -48,6 +48,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
@@ -499,7 +500,7 @@ internal fun DiscoverGrid(
     var gridWidthPx by remember { mutableStateOf(0) }
     val gridWidth = with(density) { gridWidthPx.toDp() }
     val gridCardStyle = remember(homeCardStyle, gridWidth) {
-        homeCardStyle.copy(expandFocused = false, showRatings = false).fitToGrid(gridWidth, sidePadding = 12.dp, gap = 20.dp)
+        homeCardStyle.copy(expandFocused = false, showRatings = false).fitToGrid(gridWidth, sidePadding = 40.dp, gap = 20.dp)
     }
     val (cardW, cardH) = remember(gridCardStyle) { gridCardStyle.cardSize() }
     val actionCardStyle = remember(posterCardStyle, cardW, cardH, gridCardStyle.corner) {
@@ -573,7 +574,16 @@ internal fun DiscoverGrid(
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(gridCardStyle.gridColumns()),
-        modifier = Modifier.fillMaxSize()
+        // Break out of the page's 48dp side padding so the grid spans the full width with the
+        // same 40dp padding, card size and spacing as the provider pages.
+        modifier = Modifier
+            .layout { measurable, constraints ->
+                val extra = (DiscoverPagePadding * 2).roundToPx()
+                val width = constraints.maxWidth + extra
+                val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+                layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
+            }
+            .fillMaxSize()
             .onSizeChanged { gridWidthPx = it.width }
             .focusRestorer { focusedItemRequester }
             .dpadVerticalFastScroll(
@@ -623,8 +633,8 @@ internal fun DiscoverGrid(
                 }
             ),
         contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
+            start = 40.dp,
+            end = 40.dp,
             top = 6.dp,
             bottom = NuvioTheme.spacing.xxl
         ),
@@ -782,3 +792,6 @@ private fun DiscoverActionCard(
         }
     }
 }
+
+/** Matches the Discover column's horizontal padding (NuvioTheme.spacing.xxxl). */
+private val DiscoverPagePadding = 48.dp

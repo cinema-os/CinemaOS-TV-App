@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.providers
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,8 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,13 +41,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Streaming provider tile artwork (not focusable): a 16:9 rounded tile painted with the brand
- * gradient plus a soft radial highlight, and the provider's rectangular wordmark centred on top.
- * Used by the Home Providers row ([ProviderLogoTile]) and the Provider page header. There is no grey
- * container behind it; the gradient is the whole background.
+ * Streaming provider tile artwork (not focusable): a 16:9 rounded tile painted with the provider's
+ * own background (solid / linear / radial, see [ProviderBrand]) plus a faint white radial highlight,
+ * with the bundled logo centred on top (max 78% x 52%, Fit, soft shadow). Used by the Home Providers
+ * row ([ProviderLogoTile]) and the Provider page header. There is no grey container behind it.
  *
- * Wordmark comes from [CinemaosStreamingProviders.brandFor]; if it fails to load, [tmdbLogoUrl] (the
- * square TMDB provider icon) is shown instead, and finally the provider name.
+ * The logo is a bundled drawable (no network). Providers without one fall back to [tmdbLogoUrl] (the
+ * square TMDB provider icon) and finally the provider name.
  */
 @Composable
 internal fun ProviderBrandArt(
@@ -57,38 +58,34 @@ internal fun ProviderBrandArt(
 ) {
     val brand = CinemaosStreamingProviders.brandFor(provider.id)
     val shape = RoundedCornerShape(cornerRadius)
-    // 58% brand + 42% #050505.
-    val gradientEnd = remember(brand.color) { lerp(Color(0xFF050505), brand.color, 0.58f) }
-
-    var wordmarkFailed by remember(brand.wordmarkUrl) { mutableStateOf(brand.wordmarkUrl.isBlank()) }
+    val logoRes = brand.logoRes
     var tmdbFailed by remember(tmdbLogoUrl) { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .clip(shape)
-            .drawBehind { drawBrandBackground(brand.color, gradientEnd) },
+            .drawBehind { drawBrandBackground(brand.background) },
         contentAlignment = Alignment.Center
     ) {
         when {
-            !wordmarkFailed -> {
-                // Max 78% x 52% of the tile, Fit, so any wordmark aspect ratio stays centred.
+            logoRes != null -> {
+                // Max 78% x 52% of the tile, Fit, so any logo aspect ratio stays centred.
                 val box = Modifier.fillMaxWidth(0.78f).fillMaxHeight(0.52f)
-                // Drop shadow (black 45%): a blurred, offset black copy of the same wordmark.
-                AsyncImage(
-                    model = brand.wordmarkUrl,
+                // Soft drop shadow (black 45%): a blurred, offset black copy of the same logo.
+                Image(
+                    painter = painterResource(logoRes),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     colorFilter = ColorFilter.tint(Color.Black.copy(alpha = 0.45f), BlendMode.SrcIn),
                     modifier = box
-                        .offset(y = 1.5.dp)
-                        .blur(2.dp, BlurredEdgeTreatment.Unbounded)
+                        .offset(y = 3.dp)
+                        .blur(5.dp, BlurredEdgeTreatment.Unbounded)
                 )
-                AsyncImage(
-                    model = brand.wordmarkUrl,
+                Image(
+                    painter = painterResource(logoRes),
                     contentDescription = provider.name,
                     contentScale = ContentScale.Fit,
                     colorFilter = if (brand.tintWhite) ColorFilter.tint(Color.White, BlendMode.SrcIn) else null,
-                    onError = { wordmarkFailed = true },
                     modifier = box
                 )
             }
@@ -113,42 +110,57 @@ internal fun ProviderBrandArt(
     }
 }
 
-/**
- * linear-gradient(145deg, [start], [end]) plus radial-gradient(ellipse at 80% -10%,
- * rgba(255,255,255,.18), transparent 55%), as in the web reference.
- */
-private fun DrawScope.drawBrandBackground(start: Color, end: Color) {
-    // CSS angles: 0deg points up, 90deg right; the gradient line passes through the centre and its
-    // length is |w*sin| + |h*cos| so the corners get exactly the first/last colour.
-    val angle = 145.0 * PI / 180.0
-    val dx = sin(angle).toFloat()
-    val dy = -cos(angle).toFloat()
-    val length = abs(size.width * dx) + abs(size.height * dy)
-    val half = Offset(dx * length / 2f, dy * length / 2f)
-    drawRect(
-        brush = Brush.linearGradient(
-            colors = listOf(start, end),
-            start = center - half,
-            end = center + half
+/** Fills the tile with [background], then the faint white highlight common to every tile. */
+private fun DrawScope.drawBrandBackground(background: ProviderBackground) {
+    when (background) {
+        is ProviderBackground.Solid -> drawRect(background.color)
+        is ProviderBackground.Linear -> {
+            // CSS angles: 0deg points up, 90deg right; the gradient line passes through the centre and
+            // its length is |w*sin| + |h*cos| so the corners get exactly the first/last colour.
+            val angle = background.angleDeg * PI / 180.0
+            val dx = sin(angle).toFloat()
+            val dy = -cos(angle).toFloat()
+            val length = abs(size.width * dx) + abs(size.height * dy)
+            val half = Offset(dx * length / 2f, dy * length / 2f)
+            drawRect(
+                brush = Brush.linearGradient(
+                    *background.stops.toTypedArray(),
+                    start = center - half,
+                    end = center + half
+                )
+            )
+        }
+        is ProviderBackground.Radial -> drawEllipse(
+            center = Offset(size.width * background.cx, size.height * background.cy),
+            rx = size.width * background.rxFraction,
+            ry = size.height * background.ryFraction,
+            stops = background.stops
         )
-    )
+    }
 
-    // Farthest-corner ellipse centred at (80%, -10%): radii are the farthest-side distances
-    // (0.8w horizontally, 1.1h vertically) times sqrt(2). Compose only has circular radial
-    // gradients, so draw a circle of radius rx squashed vertically by ry/rx.
-    val highlightCenter = Offset(size.width * 0.8f, -size.height * 0.1f)
-    val rx = size.width * 0.8f * 1.4142135f
-    val ry = size.height * 1.1f * 1.4142135f
-    withTransform({ scale(scaleX = 1f, scaleY = ry / rx, pivot = highlightCenter) }) {
+    // radial-gradient(120% 80% at 80% -10%, rgba(255,255,255,.10), transparent 55%)
+    drawEllipse(
+        center = Offset(size.width * 0.8f, -size.height * 0.1f),
+        rx = size.width * 1.2f,
+        ry = size.height * 0.8f,
+        stops = listOf(0f to Color.White.copy(alpha = 0.10f), 0.55f to Color.White.copy(alpha = 0f))
+    )
+}
+
+/**
+ * Elliptical radial gradient (radii [rx], [ry], colour [stops] at 0..1 along the radius). Compose only
+ * has circular radial gradients, so draw a circle of radius [rx] squashed vertically by ry/rx.
+ */
+private fun DrawScope.drawEllipse(center: Offset, rx: Float, ry: Float, stops: List<Pair<Float, Color>>) {
+    withTransform({ scale(scaleX = 1f, scaleY = ry / rx, pivot = center) }) {
         drawCircle(
             brush = Brush.radialGradient(
-                0f to Color.White.copy(alpha = 0.18f),
-                0.55f to Color.White.copy(alpha = 0f),
-                center = highlightCenter,
+                *stops.toTypedArray(),
+                center = center,
                 radius = rx
             ),
             radius = rx,
-            center = highlightCenter
+            center = center
         )
     }
 }

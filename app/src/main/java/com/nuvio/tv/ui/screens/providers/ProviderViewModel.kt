@@ -12,6 +12,7 @@ import com.nuvio.tv.data.remote.api.TmdbDiscoverResult
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.ui.screens.search.DiscoverTmdbSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,7 @@ class ProviderViewModel @Inject constructor(
     private val tmdbApi: TmdbApi,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val logoRepository: ProviderLogoRepository,
+    private val discoverSource: DiscoverTmdbSource,
     layoutPreferenceDataStore: LayoutPreferenceDataStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -198,7 +200,10 @@ class ProviderViewModel @Inject constructor(
         }
         if (!response.isSuccessful) error("TMDB discover HTTP ${response.code()}")
         val body = response.body() ?: error("TMDB discover empty")
-        val items = body.results.orEmpty().mapNotNull { it.toPreview(isSeries) }.distinctBy { it.id }
+        val items = discoverSource.withTitleLogos(
+            body.results.orEmpty().mapNotNull { it.toPreview(isSeries) }.distinctBy { it.id },
+            isSeries
+        )
         val current = body.page ?: pageNumber
         val total = minOf(body.totalPages ?: current, TMDB_MAX_PAGE)
         items to (items.isNotEmpty() && current < total)
