@@ -87,6 +87,9 @@ import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.screens.home.apple.AppleCardStyle
 import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
 import com.nuvio.tv.ui.screens.home.apple.cardSize
+import com.nuvio.tv.ui.screens.home.apple.fitToGrid
+import com.nuvio.tv.ui.screens.home.apple.gridColumns
+import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.tv.ui.screens.home.apple.rememberAppleCardStyle
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
@@ -492,7 +495,12 @@ internal fun DiscoverGrid(
 
     // Cards are exactly Home's: same style, same size. The focus-expand is a row feature (it would
     // change the card width inside its grid cell), so it stays off in the grid.
-    val gridCardStyle = remember(homeCardStyle) { homeCardStyle.copy(expandFocused = false) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var gridWidthPx by remember { mutableStateOf(0) }
+    val gridWidth = with(density) { gridWidthPx.toDp() }
+    val gridCardStyle = remember(homeCardStyle, gridWidth) {
+        homeCardStyle.copy(expandFocused = false).fitToGrid(gridWidth, sidePadding = 12.dp, gap = 20.dp)
+    }
     val (cardW, cardH) = remember(gridCardStyle) { gridCardStyle.cardSize() }
     val actionCardStyle = remember(posterCardStyle, cardW, cardH, gridCardStyle.corner) {
         posterCardStyle.copy(width = cardW, height = cardH, cornerRadius = gridCardStyle.corner)
@@ -564,8 +572,9 @@ internal fun DiscoverGrid(
 
     LazyVerticalGrid(
         state = gridState,
-        columns = GridCells.Adaptive(minSize = cardW),
+        columns = GridCells.Fixed(gridCardStyle.gridColumns()),
         modifier = Modifier.fillMaxSize()
+            .onSizeChanged { gridWidthPx = it.width }
             .focusRestorer { focusedItemRequester }
             .dpadVerticalFastScroll(
                 scrollableState = gridState,

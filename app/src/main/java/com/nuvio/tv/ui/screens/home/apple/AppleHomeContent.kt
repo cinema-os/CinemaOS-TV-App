@@ -134,6 +134,21 @@ internal fun rememberAppleCardStyle(
 internal fun AppleCardStyle.cardSize(): Pair<Dp, Dp> =
     if (landscape) (240.dp * scale) to (135.dp * scale) else (130.dp * scale) to (195.dp * scale)
 
+/** Grid column count for Home-style cards: 4 wide cards or 6 posters per row. */
+internal fun AppleCardStyle.gridColumns(): Int = if (landscape) 4 else 6
+
+/**
+ * Home's card style scaled so [gridColumns] cards exactly fill [gridWidth] (minus [sidePadding] on
+ * each side and [gap] between cards). Same look as Home rows, sized for a grid.
+ */
+internal fun AppleCardStyle.fitToGrid(gridWidth: Dp, sidePadding: Dp, gap: Dp): AppleCardStyle {
+    if (gridWidth <= 0.dp) return this
+    val cols = gridColumns()
+    val cardWidth = (gridWidth - sidePadding * 2 - gap * (cols - 1)) / cols
+    val base = if (landscape) 240.dp else 130.dp
+    return copy(scale = (cardWidth / base).coerceAtLeast(0.5f))
+}
+
 /**
  * Apple TV style Home. Renders the state HomeViewModel already produces and respects Nuvio's home
  * settings (hero on/off, landscape/size/radius, labels, ratings, catalog titles, Continue Watching

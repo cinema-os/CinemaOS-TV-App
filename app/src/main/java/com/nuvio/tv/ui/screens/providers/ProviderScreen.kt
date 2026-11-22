@@ -54,7 +54,9 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.HomeImdbRatingsVisibility
 import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
-import com.nuvio.tv.ui.screens.home.apple.cardSize
+import com.nuvio.tv.ui.screens.home.apple.fitToGrid
+import com.nuvio.tv.ui.screens.home.apple.gridColumns
+import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.tv.ui.screens.home.apple.rememberAppleCardStyle
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -125,7 +127,12 @@ fun ProviderScreen(
         expandFocused = false,
         expandDelaySeconds = 3
     )
-    val (cardWidth, _) = remember(homeCardStyle) { homeCardStyle.cardSize() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var gridWidthPx by remember { mutableStateOf(0) }
+    val gridWidth = with(density) { gridWidthPx.toDp() }
+    val gridCardStyle = remember(homeCardStyle, gridWidth) {
+        homeCardStyle.fitToGrid(gridWidth, sidePadding = 40.dp, gap = 20.dp)
+    }
 
     // Entry focus: the selected tab on first open; the last opened card when coming back.
     LaunchedEffect(state.isLoading, state.items.isNotEmpty()) {
@@ -181,8 +188,8 @@ fun ProviderScreen(
         )
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Adaptive(minSize = cardWidth),
-            modifier = Modifier.fillMaxSize().dpadRepeatThrottle(),
+            columns = GridCells.Fixed(gridCardStyle.gridColumns()),
+            modifier = Modifier.fillMaxSize().onSizeChanged { gridWidthPx = it.width }.dpadRepeatThrottle(),
             contentPadding = PaddingValues(start = 40.dp, end = 40.dp, top = 32.dp, bottom = 56.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -239,7 +246,7 @@ fun ProviderScreen(
                             // Same call as Home's rows: Home size, title logo / text on the image.
                             ApplePosterCard(
                                 item = item,
-                                style = homeCardStyle,
+                                style = gridCardStyle,
                                 modifier = Modifier.focusRequester(cardRequester(item.id)),
                                 onFocused = { lastFocusedId = item.id },
                                 onClick = {
