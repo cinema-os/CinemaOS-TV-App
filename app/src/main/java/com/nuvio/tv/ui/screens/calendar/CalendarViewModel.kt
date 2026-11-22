@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.calendar
 
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -125,7 +126,14 @@ class CalendarViewModel @Inject constructor(
         }
         _uiState.update { it.copy(entriesByDate = emptyMap(), isLoading = true) }
         loadJob = viewModelScope.launch {
-            val entries = runCatching { repository.loadMonth(month, currentSources) }.getOrDefault(emptyList())
+            val entries = try {
+                repository.loadMonth(month, currentSources)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("CalendarViewModel", "Calendar load failed", e)
+                emptyList()
+            }
             if (_uiState.value.month != month) return@launch
             _uiState.update { it.copy(entriesByDate = entries.groupBy { e -> e.date }, isLoading = false) }
         }

@@ -89,6 +89,9 @@ object DiscoverSort {
 
 internal const val DISCOVER_TYPE_SERIES = "series"
 internal const val DISCOVER_TYPE_ANIME = "anime"
+
+/** Pseudo type: the "Calendar" chip of the Discover page (shows the release calendar, no catalog). */
+internal const val DISCOVER_TYPE_CALENDAR = "calendar"
 internal const val DISCOVER_TYPE_MOVIE = "movie"
 
 /** TMDB "Animation" genre id (shared by movies and TV). */
@@ -287,22 +290,32 @@ internal fun discoverLeadingFilterKeys(catalog: DiscoverCatalog?): List<Discover
         emptyList()
     }
 
-/** Filters shown after the Catalog / Genre pills. */
+/**
+ * Essential filters shown inline after the Genre pill: Sort and Year, plus the airing Status for
+ * anime series. An addon catalog with a year list only offers Year.
+ */
 internal fun discoverExtraFilterKeys(
     catalog: DiscoverCatalog?,
     filters: DiscoverTmdbFilters = DiscoverTmdbFilters()
 ): List<DiscoverFilterKey> = when {
     catalog == null -> emptyList()
-    catalog.isTmdbDiscover && catalog.type == DISCOVER_TYPE_ANIME -> buildList {
-        add(DiscoverFilterKey.SEASON)
-        add(DiscoverFilterKey.YEAR)
-        // Movies have no airing status.
-        if (filters.format != ANIME_FORMAT_MOVIE) add(DiscoverFilterKey.STATUS)
-        add(DiscoverFilterKey.SORT)
-    }
     catalog.isTmdbDiscover -> buildList {
         add(DiscoverFilterKey.SORT)
         add(DiscoverFilterKey.YEAR)
+        // Movies have no airing status.
+        if (catalog.type == DISCOVER_TYPE_ANIME && filters.format != ANIME_FORMAT_MOVIE) {
+            add(DiscoverFilterKey.STATUS)
+        }
+    }
+    catalog.years.isNotEmpty() -> listOf(DiscoverFilterKey.YEAR)
+    else -> emptyList()
+}
+
+/** Rarer filters, hidden behind the "More filters" chip. Anime keeps only the season. */
+internal fun discoverMoreFilterKeys(catalog: DiscoverCatalog?): List<DiscoverFilterKey> = when {
+    catalog == null || !catalog.isTmdbDiscover -> emptyList()
+    catalog.type == DISCOVER_TYPE_ANIME -> listOf(DiscoverFilterKey.SEASON)
+    else -> buildList {
         add(DiscoverFilterKey.RATING)
         add(DiscoverFilterKey.RUNTIME)
         add(DiscoverFilterKey.LANGUAGE)
@@ -310,8 +323,6 @@ internal fun discoverExtraFilterKeys(
         add(DiscoverFilterKey.PROVIDER)
         if (isTvLikeDiscoverType(catalog.type)) add(DiscoverFilterKey.NETWORK)
     }
-    catalog.years.isNotEmpty() -> listOf(DiscoverFilterKey.YEAR)
-    else -> emptyList()
 }
 
 data class DiscoverTmdbPage(val items: List<MetaPreview>, val hasMore: Boolean)

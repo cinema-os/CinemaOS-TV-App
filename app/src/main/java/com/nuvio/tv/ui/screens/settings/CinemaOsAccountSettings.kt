@@ -3,6 +3,17 @@
 package com.nuvio.tv.ui.screens.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +46,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nuvio.tv.core.qr.QrCodeGenerator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -178,7 +190,8 @@ internal fun CinemaOsAccountSettingsContent(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val lastSynced by viewModel.lastSyncedAt.collectAsStateWithLifecycle()
     val syncing by viewModel.isSyncing.collectAsStateWithLifecycle()
-    val signedIn = session != null
+    val signedInUser = session
+    val signedIn = signedInUser != null
     var showSignOutConfirmation by remember { mutableStateOf(false) }
     DisposableEffect(signedIn) {
         if (!signedIn) viewModel.startFlow()
@@ -191,10 +204,28 @@ internal fun CinemaOsAccountSettingsContent(
     ) {
         SettingsDetailHeader(
             title = "CinemaOS Account",
-            subtitle = "Your profile, and sync of Continue Watching and your Library with cinemaos.tech"
+            subtitle = if (signedInUser != null) {
+                "Your profile, and sync of Continue Watching and your Library with cinemaos.tech"
+            } else {
+                "Sign in to sync Continue Watching and your Library with cinemaos.tech"
+            }
         )
-        SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
-            val current = session
+        if (signedInUser == null) {
+            CinemaOsSignedOutPanel(
+                ui = ui,
+                onNewCode = { viewModel.stopFlow(); viewModel.startFlow() },
+                newCodeFocusRequester = initialFocusRequester,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+        } else SettingsGroupCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+        ) {
+            val current = signedInUser
             if (activeProfile != null) {
                 CinemaOsProfileHeader(
                     profile = activeProfile,
@@ -265,44 +296,6 @@ internal fun CinemaOsAccountSettingsContent(
                         )
                     }
                 }
-            } else {
-                val code = ui.code
-                if (code != null) {
-                    val qr = remember(code.verificationUrlComplete) {
-                        QrCodeGenerator.generate(code.verificationUrlComplete, size = 512).asImageBitmap()
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Image(bitmap = qr, contentDescription = "Sign-in QR code", modifier = Modifier.size(220.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
-                            Text(text = code.userCode, style = MaterialTheme.typography.displaySmall)
-                            Text(
-                                text = "Scan with your phone or open cinemaos.tech/tv-login and enter the code",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = NuvioTheme.colors.TextSecondary
-                            )
-                            Text(
-                                text = "Code refreshes in ${ui.secondsLeft / 60}:${"%02d".format(ui.secondsLeft % 60)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = NuvioTheme.colors.TextSecondary
-                            )
-                        }
-                    }
-                } else if (ui.error == null) {
-                    Text(text = "Getting a sign-in code...", style = MaterialTheme.typography.bodyMedium)
-                }
-                SettingsActionRow(
-                    title = "New code",
-                    subtitle = null,
-                    onClick = { viewModel.stopFlow(); viewModel.startFlow() },
-                    modifier = if (initialFocusRequester != null && activeProfile == null) {
-                        Modifier.focusRequester(initialFocusRequester)
-                    } else {
-                        Modifier
-                    }
-                )
             }
             ui.error?.let {
                 Text(text = it, style = MaterialTheme.typography.bodySmall, color = NuvioTheme.colors.Error)
@@ -340,6 +333,137 @@ internal fun CinemaOsAccountSettingsContent(
                 }
             )
         }
+    }
+}
+
+/**
+ * Signed-out sign-in panel: a large QR on the left and short numbered steps, the code and the
+ * URL on the right. Nothing profile-related is shown here, so the QR can stay big.
+ */
+@Composable
+private fun CinemaOsSignedOutPanel(
+    ui: CinemaOsAccountUiState,
+    onNewCode: () -> Unit,
+    newCodeFocusRequester: FocusRequester?,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier = modifier) {
+        // Dominant QR: as large as the pane allows, up to 300dp (never below 220dp).
+        val qrCard = (maxHeight - 8.dp).coerceIn(220.dp, 300.dp)
+        val code = ui.code
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = qrCard),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xl),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(qrCard)
+                    .clip(RoundedCornerShape(NuvioTheme.radii.lg))
+                    .background(Color.White)
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (code != null) {
+                    val qr = remember(code.verificationUrlComplete) {
+                        QrCodeGenerator.generate(code.verificationUrlComplete, size = 768).asImageBitmap()
+                    }
+                    Image(
+                        bitmap = qr,
+                        contentDescription = "Sign-in QR code",
+                        modifier = Modifier.fillMaxSize(),
+                        filterQuality = FilterQuality.None
+                    )
+                } else {
+                    Text(
+                        text = if (ui.error != null) "No code" else "Getting a sign-in code...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF444444),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                Text(
+                    text = "Sign in to CinemaOS",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = NuvioTheme.colors.TextPrimary
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)) {
+                    SignInStep(1, "Scan the QR code with your phone")
+                    SignInStep(2, "Or open cinemaos.tech/tv-login and type the code")
+                    SignInStep(3, "Approve the sign-in on the website")
+                }
+                if (code != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xxs)) {
+                        Text(
+                            text = code.userCode,
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 4.sp,
+                            color = NuvioTheme.colors.TextPrimary,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = code.verificationUrl.removePrefix("https://").removePrefix("http://") +
+                                "  -  refreshes in ${ui.secondsLeft / 60}:${"%02d".format(ui.secondsLeft % 60)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioTheme.colors.TextSecondary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                ui.error?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodySmall, color = NuvioTheme.colors.Error)
+                }
+                SettingsActionRow(
+                    title = "New code",
+                    subtitle = null,
+                    onClick = onNewCode,
+                    modifier = if (newCodeFocusRequester != null) {
+                        Modifier.focusRequester(newCodeFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignInStep(number: Int, text: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(NuvioTheme.colors.Secondary.copy(alpha = 0.22f))
+                .border(1.dp, NuvioTheme.colors.Secondary, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = number.toString(),
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioTheme.colors.TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuvioTheme.colors.TextSecondary
+        )
     }
 }
 

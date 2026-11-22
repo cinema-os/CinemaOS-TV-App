@@ -45,9 +45,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.nuvio.tv.R
-import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
-import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.ui.screens.home.apple.AppleCardStyle
+import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
@@ -73,7 +73,10 @@ fun ProviderScreen(
     val movieTabRequester = remember { FocusRequester() }
     val seriesTabRequester = remember { FocusRequester() }
     val retryRequester = remember { FocusRequester() }
-    val cardRequester = remember { FocusRequester() }
+    // One requester per card (like Library / Sports): the card being returned to is requested by id
+    // without recomposing the whole grid every time focus moves.
+    val cardRequesters = remember { HashMap<String, FocusRequester>() }
+    fun cardRequester(id: String) = cardRequesters.getOrPut(id) { FocusRequester() }
 
     // Survives the trip to details and back.
     var lastFocusedId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -83,12 +86,13 @@ fun ProviderScreen(
     BackHandler { onBackPress() }
 
     val cardStyle = remember(cornerRadiusDp) {
-        PosterCardStyle(
-            width = 132.dp,
-            height = 198.dp,
-            cornerRadius = cornerRadiusDp.dp,
-            focusedBorderWidth = 2.dp,
-            focusedScale = 1.04f
+        AppleCardStyle(
+            scale = 1f,
+            corner = cornerRadiusDp.dp,
+            landscape = false,
+            showLabels = true,
+            alwaysLogo = false,
+            showRatings = true
         )
     }
 
@@ -100,7 +104,7 @@ fun ProviderScreen(
             val index = state.items.indexOfFirst { it.id == restoreId }
             val visible = gridState.layoutInfo.visibleItemsInfo.any { it.index == index + HEADER_ITEMS }
             if (!visible) gridState.scrollToItem(index + HEADER_ITEMS)
-            if (cardRequester.requestFocusAfterFrames(frames = 3)) return@LaunchedEffect
+            if (cardRequester(restoreId).requestFocusAfterFrames(frames = 3)) return@LaunchedEffect
         }
         if (!initialFocusDone) {
             initialFocusDone = true
@@ -146,11 +150,11 @@ fun ProviderScreen(
         )
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Adaptive(minSize = cardStyle.width),
+            columns = GridCells.Fixed(6),
             modifier = Modifier.fillMaxSize().dpadRepeatThrottle(),
-            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 48.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            contentPadding = PaddingValues(start = 40.dp, end = 40.dp, top = 32.dp, bottom = 56.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item(key = "provider_header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                 ProviderHeader(name = state.provider.name, logoUrl = state.logoUrl)
@@ -199,19 +203,19 @@ fun ProviderScreen(
                     )
                 }
                 else -> {
-                    val restoreId = lastFocusedId
                     items(items = state.items, key = { it.id }, contentType = { "posterCard" }) { item ->
-                        GridContentCard(
+                        ApplePosterCard(
                             item = item,
-                            posterCardStyle = cardStyle,
-                            showLabel = true,
-                            showReleaseInfo = true,
-                            focusRequester = if (item.id == restoreId) cardRequester else null,
+                            style = cardStyle,
+                            fixedWidth = 128.dp,
+                            fixedHeight = 192.dp,
+                            modifier = Modifier.focusRequester(cardRequester(item.id)),
                             onFocused = { lastFocusedId = item.id },
                             onClick = {
                                 lastFocusedId = item.id
                                 onNavigateToDetail(item.id, item.apiType, null)
-                            }
+                            },
+                            onLongClick = null
                         )
                     }
                     if (state.isLoadingMore) {

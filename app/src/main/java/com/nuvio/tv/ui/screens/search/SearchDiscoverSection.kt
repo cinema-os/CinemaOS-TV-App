@@ -84,7 +84,8 @@ import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.EmptyScreenState
-import com.nuvio.tv.ui.components.GridContentCard
+import com.nuvio.tv.ui.screens.home.apple.AppleCardStyle
+import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -120,6 +121,8 @@ internal fun DiscoverSection(
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    var calendarSelected by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val calendarEntryRequester = remember { FocusRequester() }
     val selectedCatalog = uiState.discoverCatalogs.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey }
     val filteredCatalogs = uiState.discoverCatalogs.filter { it.type == uiState.selectedDiscoverType }
     // Genres only: a catalog whose `genre` extra lists years exposes them under the Year pill.
@@ -142,7 +145,10 @@ internal fun DiscoverSection(
         selectedCatalog.genres.isNotEmpty()
 
     var expandedPicker by remember { mutableStateOf<String?>(null) }
+    var moreFiltersExpanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    // Focus order: type chips -> filter chip row (first chip) -> results grid (first card).
     val filterRowRequester = remember { FocusRequester() }
+    val firstFilterChipRequester = remember { FocusRequester() }
     val segmentRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -156,19 +162,7 @@ internal fun DiscoverSection(
     }
     // The header + filter pills give their space to the posters while focus is below the first
     // row, and come back as soon as focus returns to it.
-    val headerVisible = !(gridHasFocus && focusedItemIndex >= gridColumns)
-
-    // Down from the filter pills: scroll the grid to the top and focus its first result.
-    fun focusFirstResult(): Boolean {
-        if (uiState.discoverResults.isEmpty()) return false
-        scope.launch {
-            if (gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 0) {
-                gridState.scrollToItem(0)
-            }
-            firstItemFocusRequester.requestFocusAfterFrames(frames = 2)
-        }
-        return true
-    }
+    val headerVisible = calendarSelected || !(gridHasFocus && focusedItemIndex >= gridColumns)
 
     // Back from the grid returns to the filter pills instead of leaving the screen.
     androidx.activity.compose.BackHandler(enabled = gridHasFocus) {
@@ -204,7 +198,7 @@ internal fun DiscoverSection(
                 },
                 value = type
             )
-        }
+        } + DiscoverOption(label = stringResource(R.string.nav_calendar), value = DISCOVER_TYPE_CALENDAR)
 
     val anyValueLabel = stringResource(R.string.discover_filter_value_any)
     val selectedCatalogLabel = selectedCatalog?.catalogName ?: stringResource(R.string.discover_select_catalog)
@@ -229,20 +223,33 @@ internal fun DiscoverSection(
     } else {
         emptyList()
     }
+    val morePills = if (selectedCatalog != null) {
+        discoverFilterPills(discoverMoreFilterKeys(selectedCatalog), uiState, selectedCatalog, onSelectFilter)
+    } else {
+        emptyList()
+    }
+    val catalogPill = if (filteredCatalogs.size > 1) {
+        DiscoverPillSpec(
+            id = "catalog",
+            title = catalogTitle,
+            valueLabel = selectedCatalogLabel,
+            active = false,
+            options = filteredCatalogs.map { DiscoverOption(it.catalogName, it.key) },
+            selectedValue = uiState.selectedDiscoverCatalogKey,
+            onSelect = { option -> onSelectCatalog(option.value) }
+        )
+    } else {
+        null
+    }
+    // Switching the catalog is a rare action when TMDB discover is selected, so it hides behind
+    // "More filters" there; addon catalogs have no other filters, so it stays inline.
+    val catalogInline = selectedCatalog?.isTmdbDiscover != true
+    val moreFilterPills = buildList {
+        if (catalogPill != null && !catalogInline) add(catalogPill)
+        addAll(morePills)
+    }
     val pills = buildList {
-        if (filteredCatalogs.size > 1) {
-            add(
-                DiscoverPillSpec(
-                    id = "catalog",
-                    title = catalogTitle,
-                    valueLabel = selectedCatalogLabel,
-                    active = false,
-                    options = filteredCatalogs.map { DiscoverOption(it.catalogName, it.key) },
-                    selectedValue = uiState.selectedDiscoverCatalogKey,
-                    onSelect = { option -> onSelectCatalog(option.value) }
-                )
-            )
-        }
+        if (catalogPill != null && catalogInline) add(catalogPill)
         addAll(leadingPills)
         if (selectedCatalog != null) {
             add(
@@ -264,7 +271,8 @@ internal fun DiscoverSection(
         }
         addAll(extraPills)
     }
-    val selectedSegmentRequester = segmentRequesters.getOrPut(uiState.selectedDiscoverType) { FocusRequester() }
+    val activeTypeValue = if (calendarSelected) DISCOVER_TYPE_CALENDAR else uiState.selectedDiscoverType
+    val selectedSegmentRequester = segmentRequesters.getOrPut(activeTypeValue) { FocusRequester() }
 
     Column(
         modifier = modifier
@@ -295,32 +303,52 @@ internal fun DiscoverSection(
                     )
                     DiscoverTypeSwitch(
                         types = typeOptions,
-                        selectedType = uiState.selectedDiscoverType,
+                        selectedType = activeTypeValue,
                         requesterFor = { type -> segmentRequesters.getOrPut(type) { FocusRequester() } },
-                        downRequester = filterRowRequester,
+                        downRequester = if (calendarSelected) calendarEntryRequester else firstFilterChipRequester,
                         blockFocus = blockFilterFocus,
                         onSelectType = { type ->
                             expandedPicker = null
-                            onSelectType(type)
+                            if (type == DISCOVER_TYPE_CALENDAR) {
+                                calendarSelected = true
+                            } else {
+                                calendarSelected = false
+                                onSelectType(type)
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
                 }
 
-                DiscoverFilterPillRow(
-                    pills = pills,
-                    expandedPicker = expandedPicker,
-                    onExpandedChange = { expandedPicker = it },
-                    onReset = onResetFilters,
-                    rowRequester = filterRowRequester,
-                    upRequester = selectedSegmentRequester,
-                    blockFocus = blockFilterFocus,
-                    onMoveDown = ::focusFirstResult
-                )
+                if (!calendarSelected) {
+                    DiscoverFilterPillRow(
+                        pills = pills,
+                        morePills = moreFilterPills,
+                        moreExpanded = moreFiltersExpanded,
+                        onMoreExpandedChange = { moreFiltersExpanded = it },
+                        expandedPicker = expandedPicker,
+                        onExpandedChange = { expandedPicker = it },
+                        onReset = onResetFilters,
+                        rowRequester = filterRowRequester,
+                        firstChipRequester = firstFilterChipRequester,
+                        upRequester = selectedSegmentRequester,
+                        downRequester = firstItemFocusRequester,
+                        blockFocus = blockFilterFocus
+                    )
+                }
             }
         }
 
-        when {
+        if (calendarSelected) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                com.nuvio.tv.ui.screens.calendar.CalendarScreen(
+                    onNavigateToDetail = { id, type, base -> onNavigateToDetail(id, type, base ?: "") },
+                    embedded = true,
+                    upRequester = selectedSegmentRequester,
+                    entryRequester = calendarEntryRequester
+                )
+            }
+        } else when {
             uiState.discoverLoading && uiState.discoverResults.isEmpty() -> {
                 Box(
                     modifier = Modifier
@@ -520,11 +548,20 @@ internal fun DiscoverGrid(
     // and was causing focus to jump to a different column after long drags.
     var fastScrollStartColumn by remember { mutableStateOf<Int?>(null) }
 
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    // About 6 columns at TV width: card width follows the space so cards fill their cells.
+    val gridHSpacing = 22.dp
+    val gridSidePadding = 12.dp
+    val gridColumnsFixed = if (globalLandscape) 4 else 6
+    val gridCardStyle = if (globalLandscape) {
+        adaptiveStyle
+    } else {
+        val w = (maxWidth - gridSidePadding * 2 - gridHSpacing * (gridColumnsFixed - 1)) / gridColumnsFixed
+        adaptiveStyle.copy(width = w, height = w * 1.5f)
+    }
     LazyVerticalGrid(
         state = gridState,
-        columns = GridCells.Adaptive(
-            minSize = if (globalLandscape) posterCardStyle.height else adaptiveStyle.width
-        ),
+        columns = GridCells.Fixed(gridColumnsFixed),
         modifier = Modifier.fillMaxSize()
             .focusRestorer { focusedItemRequester }
             .dpadVerticalFastScroll(
@@ -573,9 +610,14 @@ internal fun DiscoverGrid(
                     }
                 }
             ),
-        contentPadding = PaddingValues(bottom = NuvioTheme.spacing.xxl),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+        contentPadding = PaddingValues(
+            start = gridSidePadding,
+            end = gridSidePadding,
+            top = 10.dp,
+            bottom = NuvioTheme.spacing.xxl
+        ),
+        horizontalArrangement = Arrangement.spacedBy(gridHSpacing),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         itemsIndexed(
             items = items,
@@ -594,33 +636,41 @@ internal fun DiscoverGrid(
                 itemYear,
                 itemRating?.let { "\u2605 " + String.format(java.util.Locale.US, "%.1f", it) }
             ).joinToString("  \u00B7  ")
-            Column(modifier = Modifier.width(adaptiveStyle.width)) {
-                GridContentCard(
-                    item = item,
-                    onClick = { onItemClick(index, item) },
-                    onLongPress = { onItemLongPress(item) },
-                    posterCardStyle = adaptiveStyle,
-                    isWatched = run {
-                        val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
-                        if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
-                    },
-                    modifier = Modifier.padding(top = 3.dp),
-                    focusRequester = focusReq,
-                    upFocusRequester = if (index < columnCount) upFocusRequester else null,
-                    onFocused = {
-                        onItemFocused(index)
-                    }
-                )
-                // Year and rating under every title; always one line so rows stay the same height.
-                Text(
-                    text = itemMeta.ifEmpty { " " },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuvioTheme.colors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxs)
+            val appleStyle = remember(gridCardStyle.cornerRadius, globalLandscape) {
+                AppleCardStyle(
+                    scale = 1f,
+                    corner = gridCardStyle.cornerRadius,
+                    landscape = globalLandscape,
+                    showLabels = true,
+                    alwaysLogo = false,
+                    showRatings = true
                 )
             }
+            val appleCardWidth = gridCardStyle.width
+            val appleCardHeight = if (globalLandscape) {
+                appleCardWidth / com.nuvio.tv.domain.model.PosterShape.LANDSCAPE.aspectRatio()
+            } else {
+                gridCardStyle.height
+            }
+            ApplePosterCard(
+                item = item,
+                style = appleStyle,
+                fixedWidth = appleCardWidth,
+                fixedHeight = appleCardHeight,
+                // Year and rating under every title (same line as before).
+                belowSubtitle = itemMeta.ifEmpty { null },
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .focusRequester(focusReq)
+                    .then(
+                        if (index < columnCount && upFocusRequester != null) {
+                            Modifier.focusProperties { up = upFocusRequester }
+                        } else Modifier
+                    ),
+                onClick = { onItemClick(index, item) },
+                onLongClick = { onItemLongPress(item) },
+                onFocused = { onItemFocused(index) }
+            )
         }
 
         if (hasActionCell) {
@@ -636,10 +686,10 @@ internal fun DiscoverGrid(
                 }
                 DiscoverActionCard(
                     actionType = actionType,
-                    posterCardStyle = adaptiveStyle,
+                    posterCardStyle = gridCardStyle,
                     modifier = Modifier
                         .padding(top = 3.dp)
-                        .width(adaptiveStyle.width),
+                        .width(gridCardStyle.width),
                     focusRequester = focusReq,
                     onFocused = { onItemFocused(actionIndex) },
                     onClick = {
@@ -659,6 +709,7 @@ internal fun DiscoverGrid(
                 )
             }
         }
+    }
     }
 }
 

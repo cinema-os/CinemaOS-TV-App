@@ -86,7 +86,7 @@ private val RowInset = 48.dp
 private val HeroBlockMinHeight = 290.dp
 private const val PROVIDERS_ROW_POSITION = 2
 
-private data class AppleCardStyle(
+internal data class AppleCardStyle(
     val scale: Float,
     val corner: Dp,
     val landscape: Boolean,
@@ -753,12 +753,17 @@ private fun AppleCatalogRow(
 }
 
 @Composable
-private fun ApplePosterCard(
+internal fun ApplePosterCard(
     item: MetaPreview,
     style: AppleCardStyle,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onFocused: () -> Unit
+    onLongClick: (() -> Unit)?,
+    onFocused: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Grid use: fixes the card size (no focus expand) and always shows the label below. */
+    fixedWidth: Dp? = null,
+    fixedHeight: Dp? = null,
+    belowSubtitle: String? = null
 ) {
     val s = style.scale
     val landscape = style.landscape
@@ -772,10 +777,11 @@ private fun ApplePosterCard(
             expanded = false
         }
     }
-    val expandedNow = expanded && !landscape
-    val targetWidth = if (landscape) 240.dp * s else if (expandedNow) 240.dp * s else 130.dp * s
+    val fixed = fixedWidth != null && fixedHeight != null
+    val expandedNow = expanded && !landscape && !fixed
+    val targetWidth = fixedWidth ?: if (landscape) 240.dp * s else if (expandedNow) 240.dp * s else 130.dp * s
     val widthDp by androidx.compose.animation.core.animateDpAsState(targetWidth, androidx.compose.animation.core.tween(300), label = "posterExpand")
-    val heightDp = (if (landscape) 135.dp else 195.dp) * s
+    val heightDp = fixedHeight ?: ((if (landscape) 135.dp else 195.dp) * s)
     val url = if (landscape || expandedNow) (item.landscapePoster ?: item.background ?: item.poster) else item.poster
     val appleRating = item.displayRating()
     AppleArtCard(
@@ -786,13 +792,15 @@ private fun ApplePosterCard(
         title = item.name,
         logoUrl = item.logo,
         subtitle = null,
-        overlay = (landscape || expandedNow) && style.showLabels,
+        overlay = !fixed && (landscape || expandedNow) && style.showLabels,
         alwaysLogo = style.alwaysLogo,
         rating = appleRating?.value?.takeIf { style.showRatings },
         ratingLabel = appleRating?.takeUnless { it.isImdb }?.let { "TMDB" },
         progress = 0f,
         blur = false,
-        belowLabel = if (!landscape && style.showLabels) item.name else null,
+        belowLabel = if ((fixed || !landscape) && style.showLabels) item.name else null,
+        belowSubtitle = belowSubtitle,
+        modifier = modifier,
         onClick = onClick,
         onLongClick = onLongClick,
         onFocused = onFocused,
@@ -873,7 +881,8 @@ private fun AppleArtCard(
     onFocused: () -> Unit,
     emoji: String? = null,
     belowSubtitle: String? = null,
-    onFocusChange: ((Boolean) -> Unit)? = null
+    onFocusChange: ((Boolean) -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -890,7 +899,7 @@ private fun AppleArtCard(
             onFocused = onFocused,
             onFocusChange = onFocusChange,
             shape = shape,
-            modifier = Modifier.width(width).height(height)
+            modifier = modifier.width(width).height(height)
         ) {
             if (imageUrl.isNullOrBlank() && !emoji.isNullOrBlank()) {
                 Text(

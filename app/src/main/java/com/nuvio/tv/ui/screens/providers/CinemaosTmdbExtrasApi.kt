@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.providers
 
+import com.nuvio.tv.data.remote.api.TmdbDiscoverResponse
 import com.nuvio.tv.data.remote.api.TmdbSeasonSummary
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -42,6 +43,18 @@ interface CinemaosTmdbExtrasApi {
         @Query("api_key") apiKey: String,
         @Query("language") language: String? = null
     ): Response<CinemaosTvAiringDetails>
+
+    /** TV discover by episode air date window (`air_date.gte` / `air_date.lte`), used by the Calendar. */
+    @GET("discover/tv")
+    suspend fun discoverTvByAirDate(
+        @Query("api_key") apiKey: String,
+        @Query("air_date.gte") airDateGte: String,
+        @Query("air_date.lte") airDateLte: String,
+        @Query("page") page: Int = 1,
+        @Query("sort_by") sortBy: String? = "popularity.desc",
+        @Query("include_adult") includeAdult: Boolean? = false,
+        @Query("language") language: String? = null
+    ): Response<TmdbDiscoverResponse>
 
     @GET("movie/{movie_id}")
     suspend fun movieReleaseDetails(

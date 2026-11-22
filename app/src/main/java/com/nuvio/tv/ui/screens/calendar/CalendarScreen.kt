@@ -93,17 +93,26 @@ private const val MAX_STRIP_POSTERS = 3
  * Focus: entering focuses the selected day (today by default); arrows move across the grid; Up from
  * the first week reaches the header (prev / next month, Today, List view) and Up from the header
  * leaves to the top navigation bar; Right from the last column
- * or OK on a day moves into the day panel; Left or Back from the panel returns to the day. Back from a
- * title's details restores focus to the panel / list row that opened it.
+ * or OK on a day moves into the day panel; Left or Back from the panel returns to the day (and, embedded,
+ * Back from the page returns to the Discover chips). Back from a title's details restores focus to the
+ * panel / list row that opened it.
  */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun CalendarScreen(
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
-    viewModel: CalendarViewModel = hiltViewModel()
+    viewModel: CalendarViewModel = hiltViewModel(),
+    /**
+     * True when shown inside the Discover page (the "Calendar" chip): no own background / top inset,
+     * no automatic focus grab (the chip keeps focus until Down), and Up from the header goes to
+     * [upRequester] (the chips). [entryRequester] is what the chips' Down focuses.
+     */
+    embedded: Boolean = false,
+    upRequester: FocusRequester? = null,
+    entryRequester: FocusRequester? = null
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val contentFocusRequester = LocalContentFocusRequester.current
+    val contentFocusRequester = if (embedded) (entryRequester ?: remember { FocusRequester() }) else LocalContentFocusRequester.current
     val sidebarExpanded = LocalSidebarExpanded.current
 
     val prevRequester = remember { FocusRequester() }
@@ -129,6 +138,8 @@ fun CalendarScreen(
 
     LaunchedEffect(sidebarExpanded, state.listView, state.isLoading) {
         if (sidebarExpanded) return@LaunchedEffect
+        // Embedded: only bring focus back after returning from details, never on first show.
+        if (embedded && restorePanelIndex < 0 && restoreListKey == null) return@LaunchedEffect
         repeat(ENTRY_FOCUS_ATTEMPTS) { attempt ->
             withFrameNanos { }
             if (pageHasFocus) return@LaunchedEffect
@@ -148,25 +159,37 @@ fun CalendarScreen(
                     selectedDayRequester?.tryFocus() == true || dayRequesters[1]?.tryFocus() == true
                 }
                 )
-            val focused = restored || fallback
-            if (focused) return@LaunchedEffect
+            if (restored) {
+                // Restore once: the next visit starts from the selected day again.
+                if (state.listView) restoreListKey = null else restorePanelIndex = -1
+            }
+            if (restored || fallback) return@LaunchedEffect
             delay(40)
         }
     }
 
+    // Back steps out one level, like Discover's grid: panel -> selected day -> (embedded) the chips.
     BackHandler(enabled = panelHasFocus && !state.listView && selectedDayRequester != null) {
         selectedDayRequester?.tryFocus()
+    }
+    BackHandler(enabled = embedded && upRequester != null && pageHasFocus && !panelHasFocus) {
+        upRequester?.tryFocus()
     }
 
     val background = NuvioTheme.colors.Background
     // The root route is not inset for us (withTopInset = false), so clear the floating top nav bar
     // here like Sports does; the header then sits directly below it and Up reaches it.
-    val topPadding = maxOf(LocalRootTopInset.current + 4.dp, 22.dp)
+    val topPadding = if (embedded) 6.dp else maxOf(LocalRootTopInset.current + 4.dp, 22.dp)
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(background)
-            .padding(start = 40.dp, end = 32.dp, top = topPadding, bottom = 18.dp)
+            .then(if (embedded) Modifier else Modifier.background(background))
+            .padding(
+                start = if (embedded) 0.dp else 40.dp,
+                end = if (embedded) 0.dp else 32.dp,
+                top = topPadding,
+                bottom = 18.dp
+            )
             .onFocusChanged { pageHasFocus = it.hasFocus }
             .focusRequester(contentFocusRequester)
             .focusRestorer()
@@ -181,6 +204,7 @@ fun CalendarScreen(
             todayRequester = todayRequester,
             viewToggleRequester = viewToggleRequester,
             downTarget = if (state.listView || !state.tmdbAvailable) null else selectedDayRequester,
+            upTarget = if (embedded) upRequester else null,
             onPrev = viewModel::previousMonth,
             onNext = viewModel::nextMonth,
             onToday = viewModel::goToToday,
@@ -225,7 +249,6 @@ fun CalendarScreen(
                     date = state.selectedDate,
                     entries = state.selectedEntries,
                     isLoading = state.isLoading,
-                    hasSources = state.hasSources,
                     requesterFor = ::panelRequester,
                     leftTarget = selectedDayRequester,
                     onOpen = { index, entry ->
@@ -252,6 +275,7 @@ private fun CalendarHeader(
     todayRequester: FocusRequester,
     viewToggleRequester: FocusRequester,
     downTarget: FocusRequester?,
+    upTarget: FocusRequester?,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onToday: () -> Unit,
@@ -262,7 +286,12 @@ private fun CalendarHeader(
         month.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale))
             .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
     }
-    val downModifier = Modifier.focusProperties { if (downTarget != null) down = downTarget }
+    // Down enters the grid on the selected day (not whichever cell is nearest, which skips the blank
+    // cells of week 1); Up (embedded) goes to the Discover chip that selected the calendar.
+    val headerNav = Modifier.focusProperties {
+        if (downTarget != null) down = downTarget
+        if (upTarget != null) up = upTarget
+    }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = Icons.Default.CalendarMonth,
@@ -277,7 +306,7 @@ private fun CalendarHeader(
             onClick = onPrev,
             icon = Icons.Default.ChevronLeft,
             contentDescription = stringResource(R.string.cinemaos_calendar_previous_month),
-            modifier = Modifier.focusRequester(prevRequester).then(downModifier)
+            modifier = Modifier.focusRequester(prevRequester).then(headerNav)
         )
         Spacer(Modifier.width(12.dp))
         Text(
@@ -295,7 +324,7 @@ private fun CalendarHeader(
             onClick = onNext,
             icon = Icons.Default.ChevronRight,
             contentDescription = stringResource(R.string.cinemaos_calendar_next_month),
-            modifier = Modifier.focusRequester(nextRequester).then(downModifier)
+            modifier = Modifier.focusRequester(nextRequester).then(headerNav)
         )
         if (isLoading) {
             Spacer(Modifier.width(16.dp))
@@ -311,7 +340,7 @@ private fun CalendarHeader(
             selected = false,
             onClick = onToday,
             icon = Icons.Default.Today,
-            modifier = Modifier.focusRequester(todayRequester).then(downModifier)
+            modifier = Modifier.focusRequester(todayRequester).then(headerNav)
         )
         Spacer(Modifier.width(10.dp))
         CinemaosPill(
@@ -321,7 +350,7 @@ private fun CalendarHeader(
             selected = listView,
             onClick = onToggleView,
             icon = if (listView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-            modifier = Modifier.focusRequester(viewToggleRequester).then(downModifier)
+            modifier = Modifier.focusRequester(viewToggleRequester).then(headerNav)
         )
     }
 }
@@ -507,7 +536,6 @@ private fun DayPanel(
     date: LocalDate,
     entries: List<CalendarEntry>,
     isLoading: Boolean,
-    hasSources: Boolean,
     requesterFor: (Int) -> FocusRequester,
     leftTarget: FocusRequester?,
     onOpen: (Int, CalendarEntry) -> Unit,
@@ -563,11 +591,6 @@ private fun DayPanel(
                 text = stringResource(R.string.cinemaos_calendar_loading),
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.5f)
-            )
-            !hasSources -> Text(
-                text = stringResource(R.string.cinemaos_calendar_no_sources),
-                fontSize = 13.sp,
-                color = Color.White.copy(alpha = 0.6f)
             )
         }
     }
@@ -678,7 +701,6 @@ private fun CalendarListView(
             stringResource(
                 when {
                     state.isLoading -> R.string.cinemaos_calendar_loading
-                    !state.hasSources -> R.string.cinemaos_calendar_no_sources
                     else -> R.string.cinemaos_calendar_month_empty
                 }
             )

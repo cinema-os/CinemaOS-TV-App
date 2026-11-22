@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -25,7 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -69,6 +70,7 @@ class ProvidersRowViewModel @Inject constructor(
  * Discover "Streaming on" list. Remembers the tile that opened a Provider page and puts focus back on
  * it when Home is shown again.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun ProvidersHomeRow(
     onProviderClick: (StreamingProvider) -> Unit,
@@ -109,7 +111,12 @@ fun ProvidersHomeRow(
                 color = Color.White
             )
         }
+        // Same as the Sports rows: focusRestorer makes the row one focus group, so Up/Down leave it
+        // through the Home list's normal focus search and re-entering lands on the last focused tile.
         LazyRow(
+            modifier = Modifier
+                .focusRestorer()
+                .focusGroup(),
             contentPadding = PaddingValues(horizontal = rowInset, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -144,7 +151,7 @@ internal fun ProviderLogoTile(
             shape = shape,
             containerColor = Color(0xFF1C1C1E),
             focusedContainerColor = Color(0xFF2C2C2E),
-            modifier = modifier.width(150.dp).height(84.dp)
+            modifier = modifier.width(200.dp).height(112.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -161,8 +168,10 @@ internal fun ProviderLogoTile(
                     AsyncImage(
                         model = logoUrl,
                         contentDescription = provider.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(54.dp).clip(RoundedCornerShape(12.dp))
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 36.dp, vertical = 24.dp)
                     )
                 } else {
                     Text(

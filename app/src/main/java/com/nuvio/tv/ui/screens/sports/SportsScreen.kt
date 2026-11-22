@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SportsSoccer
@@ -126,14 +127,8 @@ fun SportsScreen(
     var filterBarFocused by remember { mutableStateOf(false) }
     var chipsExpanded by rememberSaveable { mutableStateOf(false) }
     var toggleHandled by remember { mutableStateOf(false) }
-    // Keep D-pad focus on the More / Less chip after the bar swaps between its two layouts.
-    LaunchedEffect(chipsExpanded) {
-        if (!toggleHandled) { toggleHandled = true; return@LaunchedEffect }
-        repeat(3) {
-            withFrameNanos { }
-            if (runCatching { requesterFor(CHIP_TOGGLE).requestFocus() }.getOrDefault(false)) return@LaunchedEffect
-        }
-    }
+    // Compact chip row; hoisted so a selection can pin it to the start (see the chip onClick below).
+    val chipRowState = rememberLazyListState()
     val sidebarExpanded = LocalSidebarExpanded.current
 
     val showChips = uiState.filters.isNotEmpty() || uiState.hasLiveTv
@@ -149,6 +144,19 @@ fun SportsScreen(
         uiState.rows.firstOrNull()?.let { row -> row.items.firstOrNull()?.let { rowCardKey(row.key, it.key) } }
     }
     val contentReady = showChips || firstCardKey != null
+
+    // The focused More / Less chip is destroyed when the bar swaps between its two layouts: put focus
+    // back on it, or on the selected chip when it is not on screen (the compact row ends with it).
+    LaunchedEffect(chipsExpanded) {
+        if (!toggleHandled) { toggleHandled = true; return@LaunchedEffect }
+        repeat(3) {
+            withFrameNanos { }
+            val focused = listOf(CHIP_TOGGLE, selectedChipKey).any { key ->
+                runCatching { requesterFor(key).requestFocus() }.getOrDefault(false)
+            }
+            if (focused) return@LaunchedEffect
+        }
+    }
 
     LaunchedEffect(sidebarExpanded, contentReady) {
         if (sidebarExpanded || !contentReady) return@LaunchedEffect
@@ -267,6 +275,7 @@ fun SportsScreen(
                             }
                         } else {
                             LazyRow(
+                                state = chipRowState,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp)
@@ -279,7 +288,12 @@ fun SportsScreen(
                                     SettingsTopBarTab(
                                         title = chip.title,
                                         isSelected = chip.selected,
-                                        onClick = chip.onClick,
+                                        onClick = {
+                                            // The selected chip moves to the front; without this the row keeps
+                                            // the old first chip anchored, scrolling the focused chip away.
+                                            chipRowState.requestScrollToItem(0)
+                                            chip.onClick()
+                                        },
                                         icon = chip.icon,
                                         onFocusedTabPositioned = onFocusedTabPositioned,
                                         modifier = Modifier.chipFocus(chip.focusKey, ::requesterFor, onFocusKey)

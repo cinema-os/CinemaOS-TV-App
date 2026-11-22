@@ -49,7 +49,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Home
@@ -1132,7 +1131,6 @@ open class MainActivity : ComponentActivity() {
                     val strNavDiscover = stringResource(R.string.nav_discover)
                     val strNavAnime = stringResource(R.string.nav_anime)
                     val strNavSports = stringResource(R.string.nav_sports)
-                    val strNavCalendar = stringResource(R.string.nav_calendar)
                     val strNavSearch = stringResource(R.string.nav_search)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
@@ -1141,7 +1139,6 @@ open class MainActivity : ComponentActivity() {
                         strNavDiscover,
                         strNavAnime,
                         strNavSports,
-                        strNavCalendar,
                         strNavSearch,
                         strNavLibrary,
                         strNavSettings,
@@ -1177,13 +1174,6 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.Sports.route,
                                     label = strNavSports,
                                     icon = com.nuvio.tv.ui.components.LiveTvIcon
-                                )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Calendar.route,
-                                    label = strNavCalendar,
-                                    icon = Icons.Default.CalendarMonth
                                 )
                             )
                             add(

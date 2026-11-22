@@ -119,8 +119,10 @@ private fun MovieCollectionContent(
     val gridState = rememberLazyGridState()
     // Survives the trip to a movie's details and back, so Back lands on the card you left.
     var lastFocusedId by rememberSaveable { mutableStateOf<String?>(null) }
-    val targetId = lastFocusedId?.takeIf { id -> movies.any { it.id == id } } ?: movies.firstOrNull()?.id
-    val targetFocusRequester = remember { FocusRequester() }
+    // One requester per movie (like Library): focusing the target card does not recompose the grid
+    // each time focus moves, because lastFocusedId is only read when the effect below runs.
+    val cardRequesters = remember { HashMap<String, FocusRequester>() }
+    fun cardRequester(id: String) = cardRequesters.getOrPut(id) { FocusRequester() }
 
     val cardStyle = remember(cornerRadiusDp) {
         PosterCardStyle(
@@ -132,14 +134,15 @@ private fun MovieCollectionContent(
         )
     }
 
+    // Entry: the card you left (after details), else the first movie.
     LaunchedEffect(movies) {
+        val targetId = lastFocusedId?.takeIf { id -> movies.any { it.id == id } } ?: movies.firstOrNull()?.id
+            ?: return@LaunchedEffect
         val targetIndex = movies.indexOfFirst { it.id == targetId }
-        if (targetIndex >= 0) {
-            // +1: the header is the first grid item.
-            val visible = gridState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex + 1 }
-            if (!visible) gridState.scrollToItem(targetIndex + 1)
-        }
-        targetFocusRequester.requestFocusAfterFrames(frames = 3)
+        // +1: the header is the first grid item.
+        val visible = gridState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex + 1 }
+        if (!visible) gridState.scrollToItem(targetIndex + 1)
+        cardRequester(targetId).requestFocusAfterFrames(frames = 3)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -173,7 +176,7 @@ private fun MovieCollectionContent(
                         posterCardStyle = cardStyle,
                         showLabel = true,
                         showReleaseInfo = true,
-                        focusRequester = if (movie.id == targetId) targetFocusRequester else null,
+                        focusRequester = cardRequester(movie.id),
                         onFocused = { lastFocusedId = movie.id },
                         onClick = {
                             lastFocusedId = movie.id

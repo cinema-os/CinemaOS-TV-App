@@ -1,7 +1,6 @@
 package com.nuvio.tv.ui.screens.search
 
 import android.content.Context
-import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -43,7 +42,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -293,9 +291,9 @@ internal fun DiscoverFilterPill(
     onExpandedChange: (Boolean) -> Unit,
     focusRequester: FocusRequester,
     upRequester: FocusRequester?,
+    downRequester: FocusRequester?,
     blockFocus: Boolean,
-    onFocused: () -> Unit,
-    onMoveDown: () -> Boolean,
+    atEnd: Boolean,
     onTabPositioned: ((LayoutCoordinates) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -339,20 +337,11 @@ internal fun DiscoverFilterPill(
             title = "${spec.title}: ${spec.valueLabel}",
             isSelected = spec.active,
             onClick = { onExpandedChange(!expanded) },
-            onFocused = onFocused,
             onFocusedTabPositioned = onTabPositioned,
             modifier = Modifier
                 .widthIn(max = 340.dp)
                 .focusRequester(focusRequester)
-                .focusProperties {
-                    if (blockFocus) canFocus = false
-                    if (upRequester != null) up = upRequester
-                }
-                .onPreviewKeyEvent { event ->
-                    event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
-                        event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
-                        onMoveDown()
-                }
+                .discoverChipFocus(upRequester, downRequester, blockFocus, atEnd)
         )
 
         DropdownMenu(
@@ -427,75 +416,120 @@ internal fun DiscoverFilterPill(
 }
 
 /**
- * The single-line, horizontally scrolling row of filter pills followed by "Clear all". It is one
- * focus group: [rowRequester] enters it (restoring the last focused pill), Up leaves to
- * [upRequester] and Down is handed to [onMoveDown] (first result of the grid).
+ * Shared D-pad wiring of every chip in a chips row: Up / Down go to the neighbouring row, Right
+ * stops at the last chip. Left is left alone so it can reach the sidebar / nav.
+ */
+private fun Modifier.discoverChipFocus(
+    upRequester: FocusRequester?,
+    downRequester: FocusRequester?,
+    blockFocus: Boolean,
+    atEnd: Boolean
+): Modifier = focusProperties {
+    if (blockFocus) canFocus = false
+    if (upRequester != null) up = upRequester
+    if (downRequester != null) down = downRequester
+    if (atEnd) right = FocusRequester.Cancel
+}
+
+/**
+ * The single-line, horizontally scrolling row of essential filter pills, then the "More filters"
+ * chip (the rarer [morePills] follow it once expanded) and "Clear all" as the very last chip.
+ *
+ * D-pad: [firstChipRequester] is attached to the first chip, so the type chips' Down lands there;
+ * [rowRequester] enters the row as a group and restores the last focused chip (used by Up from the
+ * grid). Up leaves to [upRequester], Down to [downRequester] (first result), Right stops at the
+ * last chip; Left is left to the default search (sidebar / nav).
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun DiscoverFilterPillRow(
     pills: List<DiscoverPillSpec>,
+    morePills: List<DiscoverPillSpec>,
+    moreExpanded: Boolean,
+    onMoreExpandedChange: (Boolean) -> Unit,
     expandedPicker: String?,
     onExpandedChange: (String?) -> Unit,
     onReset: () -> Unit,
     rowRequester: FocusRequester,
+    firstChipRequester: FocusRequester,
     upRequester: FocusRequester?,
+    downRequester: FocusRequester?,
     blockFocus: Boolean,
-    onMoveDown: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
-    val pillRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    fun requesterFor(id: String): FocusRequester = pillRequesters.getOrPut(id) { FocusRequester() }
-    var lastFocusedId by remember { mutableStateOf(pills.firstOrNull()?.id ?: DISCOVER_CLEAR_PILL_ID) }
+    val chipRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val firstId = pills.firstOrNull()?.id
+        ?: if (morePills.isNotEmpty()) DISCOVER_MORE_CHIP_ID else DISCOVER_CLEAR_PILL_ID
+    fun requesterFor(id: String): FocusRequester =
+        if (id == firstId) firstChipRequester else chipRequesters.getOrPut(id) { FocusRequester() }
     var rowFocused by remember { mutableStateOf(false) }
+    val moreActiveCount = morePills.count { it.active }
+    val moreTitle = when {
+        moreExpanded -> DISCOVER_FEWER_FILTERS_LABEL
+        moreActiveCount > 0 -> "$DISCOVER_MORE_FILTERS_LABEL ($moreActiveCount)"
+        else -> DISCOVER_MORE_FILTERS_LABEL
+    }
 
     SettingsTopBarSurface(focused = rowFocused, modifier = modifier) { onTabPositioned ->
+        @Composable
+        fun Pill(spec: DiscoverPillSpec) {
+            DiscoverFilterPill(
+                spec = spec.copy(
+                    onSelect = { option ->
+                        spec.onSelect(option)
+                        onExpandedChange(null)
+                    }
+                ),
+                expanded = expandedPicker == spec.id,
+                onExpandedChange = { shouldExpand -> onExpandedChange(if (shouldExpand) spec.id else null) },
+                focusRequester = requesterFor(spec.id),
+                upRequester = upRequester,
+                downRequester = downRequester,
+                blockFocus = blockFocus,
+                atEnd = false,
+                onTabPositioned = onTabPositioned
+            )
+        }
+
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(rowRequester)
-                .focusRestorer { requesterFor(lastFocusedId) }
+                .focusRestorer { requesterFor(firstId) }
                 .onFocusChanged { rowFocused = it.hasFocus },
             contentPadding = PaddingValues(vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            items(items = pills, key = { it.id }) { spec ->
-                DiscoverFilterPill(
-                    spec = spec.copy(
-                        onSelect = { option ->
-                            spec.onSelect(option)
+            items(items = pills, key = { it.id }) { spec -> Pill(spec) }
+            if (morePills.isNotEmpty()) {
+                item(key = DISCOVER_MORE_CHIP_ID) {
+                    SettingsTopBarTab(
+                        title = moreTitle,
+                        isSelected = moreActiveCount > 0,
+                        onClick = {
                             onExpandedChange(null)
-                        }
-                    ),
-                    expanded = expandedPicker == spec.id,
-                    onExpandedChange = { shouldExpand -> onExpandedChange(if (shouldExpand) spec.id else null) },
-                    focusRequester = requesterFor(spec.id),
-                    upRequester = upRequester,
-                    blockFocus = blockFocus,
-                    onFocused = { lastFocusedId = spec.id },
-                    onMoveDown = onMoveDown,
-                    onTabPositioned = onTabPositioned
-                )
+                            onMoreExpandedChange(!moreExpanded)
+                        },
+                        onFocusedTabPositioned = onTabPositioned,
+                        modifier = Modifier
+                            .focusRequester(requesterFor(DISCOVER_MORE_CHIP_ID))
+                            .discoverChipFocus(upRequester, downRequester, blockFocus, atEnd = false)
+                    )
+                }
+                if (moreExpanded) {
+                    items(items = morePills, key = { it.id }) { spec -> Pill(spec) }
+                }
             }
             item(key = DISCOVER_CLEAR_PILL_ID) {
                 SettingsTopBarTab(
                     title = stringResource(R.string.discover_filters_clear_all),
                     isSelected = false,
                     onClick = onReset,
-                    onFocused = { lastFocusedId = DISCOVER_CLEAR_PILL_ID },
                     onFocusedTabPositioned = onTabPositioned,
                     modifier = Modifier
                         .focusRequester(requesterFor(DISCOVER_CLEAR_PILL_ID))
-                        .focusProperties {
-                            if (blockFocus) canFocus = false
-                            if (upRequester != null) up = upRequester
-                        }
-                        .onPreviewKeyEvent { event ->
-                            event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
-                                event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
-                                onMoveDown()
-                        }
+                        .discoverChipFocus(upRequester, downRequester, blockFocus, atEnd = true)
                 )
             }
         }
@@ -503,12 +537,15 @@ internal fun DiscoverFilterPillRow(
 }
 
 private const val DISCOVER_CLEAR_PILL_ID = "clear_all"
+private const val DISCOVER_MORE_CHIP_ID = "more_filters"
+private const val DISCOVER_MORE_FILTERS_LABEL = "More filters"
+private const val DISCOVER_FEWER_FILTERS_LABEL = "Fewer filters"
 
 /**
  * Movies / Series / Anime switch built from the same [SettingsTopBarTab] chips as the Sports /
  * Live TV filters. Every chip is focusable and the selected one is tinted. Down moves to
- * [downRequester] (the filter chip row); Up is left to the default search, which reaches the top
- * navigation bar.
+ * [downRequester] (the first filter chip); Up is left to the default search, which reaches the top
+ * navigation bar; Right stops at the last chip.
  */
 @Composable
 internal fun DiscoverTypeSwitch(
@@ -527,7 +564,7 @@ internal fun DiscoverTypeSwitch(
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            types.forEach { type ->
+            types.forEachIndexed { index, type ->
                 SettingsTopBarTab(
                     title = type.label,
                     isSelected = type.value == selectedType,
@@ -535,10 +572,12 @@ internal fun DiscoverTypeSwitch(
                     onFocusedTabPositioned = onTabPositioned,
                     modifier = Modifier
                         .focusRequester(requesterFor(type.value))
-                        .focusProperties {
-                            down = downRequester
-                            if (blockFocus) canFocus = false
-                        }
+                        .discoverChipFocus(
+                            upRequester = null,
+                            downRequester = downRequester,
+                            blockFocus = blockFocus,
+                            atEnd = index == types.lastIndex
+                        )
                 )
             }
         }
