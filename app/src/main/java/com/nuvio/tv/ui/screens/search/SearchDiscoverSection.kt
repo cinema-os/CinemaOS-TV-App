@@ -86,6 +86,8 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.screens.home.apple.AppleCardStyle
 import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
+import com.nuvio.tv.ui.screens.home.apple.cardSize
+import com.nuvio.tv.ui.screens.home.apple.rememberAppleCardStyle
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -121,6 +123,17 @@ internal fun DiscoverSection(
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    // Same card style Home's rows use (same settings), so Discover cards look identical.
+    val homeCardStyle = rememberAppleCardStyle(
+        posterCardWidthDp = uiState.posterCardWidthDp,
+        posterCardCornerRadiusDp = uiState.posterCardCornerRadiusDp,
+        landscape = uiState.modernLandscapePostersEnabled,
+        showLabels = uiState.posterLabelsEnabled,
+        alwaysLogo = uiState.alwaysShowLandscapeClearlogo,
+        showRatings = uiState.showRatings,
+        expandFocused = uiState.focusedPosterBackdropExpandEnabled,
+        expandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds
+    )
     var calendarSelected by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val calendarEntryRequester = remember { FocusRequester() }
     val selectedCatalog = uiState.discoverCatalogs.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey }
@@ -365,6 +378,7 @@ internal fun DiscoverSection(
                 DiscoverGrid(
                     items = uiState.discoverResults,
                     posterCardStyle = posterCardStyle,
+                    homeCardStyle = homeCardStyle,
                     gridState = gridState,
                     upFocusRequester = filterRowRequester,
                     watchedMovieIds = watchedMovieIds,
@@ -425,6 +439,7 @@ internal data class DiscoverOption(
 internal fun DiscoverGrid(
     items: List<MetaPreview>,
     posterCardStyle: PosterCardStyle,
+    homeCardStyle: AppleCardStyle,
     gridState: LazyGridState,
     upFocusRequester: FocusRequester? = null,
     watchedMovieIds: Set<String> = emptySet(),
@@ -475,13 +490,12 @@ internal fun DiscoverGrid(
     val totalCells = items.size + if (actionType != DiscoverGridAction.None) 1 else 0
     val hasActionCell = actionType != DiscoverGridAction.None
 
-    val globalLandscape = com.nuvio.tv.ui.components.LocalLandscapePosterMode.current
-    val adaptiveStyle = remember(posterCardStyle) {
-        val cardWidth = posterCardStyle.width
-        posterCardStyle.copy(
-            width = cardWidth,
-            height = cardWidth * 1.5f
-        )
+    // Cards are exactly Home's: same style, same size. The focus-expand is a row feature (it would
+    // change the card width inside its grid cell), so it stays off in the grid.
+    val gridCardStyle = remember(homeCardStyle) { homeCardStyle.copy(expandFocused = false) }
+    val (cardW, cardH) = remember(gridCardStyle) { gridCardStyle.cardSize() }
+    val actionCardStyle = remember(posterCardStyle, cardW, cardH, gridCardStyle.corner) {
+        posterCardStyle.copy(width = cardW, height = cardH, cornerRadius = gridCardStyle.corner)
     }
 
     LaunchedEffect(effectiveShouldRestoreFocusedItem, effectiveFocusedItemIndex, totalCells) {
@@ -548,20 +562,9 @@ internal fun DiscoverGrid(
     // and was causing focus to jump to a different column after long drags.
     var fastScrollStartColumn by remember { mutableStateOf<Int?>(null) }
 
-    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-    // Landscape mode: 5 columns of 16:9 cards; poster mode: 6 columns of 2:3 cards. The card width
-    // is derived from the available width so every card fills its grid cell exactly.
-    val gridHSpacing = 24.dp
-    val gridSidePadding = 12.dp
-    val gridColumnsFixed = if (globalLandscape) 5 else 6
-    val cardW = (maxWidth - gridSidePadding * 2 - gridHSpacing * (gridColumnsFixed - 1)) / gridColumnsFixed
-    val gridCardStyle = adaptiveStyle.copy(
-        width = cardW,
-        height = if (globalLandscape) cardW * 9f / 16f else cardW * 1.5f
-    )
     LazyVerticalGrid(
         state = gridState,
-        columns = GridCells.Fixed(gridColumnsFixed),
+        columns = GridCells.Adaptive(minSize = cardW),
         modifier = Modifier.fillMaxSize()
             .focusRestorer { focusedItemRequester }
             .dpadVerticalFastScroll(
@@ -611,13 +614,13 @@ internal fun DiscoverGrid(
                 }
             ),
         contentPadding = PaddingValues(
-            start = gridSidePadding,
-            end = gridSidePadding,
+            start = 12.dp,
+            end = 12.dp,
             top = 6.dp,
             bottom = NuvioTheme.spacing.xxl
         ),
-        horizontalArrangement = Arrangement.spacedBy(gridHSpacing),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         itemsIndexed(
             items = items,
@@ -630,39 +633,24 @@ internal fun DiscoverGrid(
                 focusResults && index == 0 -> firstItemFocusRequester
                 else -> itemFocusReq
             }
-            // Only the year under the title: the rating already shows as the badge on the image.
-            val itemMeta = item.releaseInfo?.take(4)?.takeIf { it.isNotBlank() }.orEmpty()
-            val appleStyle = remember(gridCardStyle.cornerRadius, globalLandscape) {
-                AppleCardStyle(
-                    scale = 1f,
-                    corner = gridCardStyle.cornerRadius,
-                    landscape = globalLandscape,
-                    showLabels = true,
-                    alwaysLogo = false,
-                    showRatings = true
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                // Exactly how Home's rows call it: no fixed size, no sub-label; the overlay title
+                // logo (or the title text when the item has no logo) comes from the card itself.
+                ApplePosterCard(
+                    item = item,
+                    style = gridCardStyle,
+                    modifier = Modifier
+                        .focusRequester(focusReq)
+                        .then(
+                            if (index < columnCount && upFocusRequester != null) {
+                                Modifier.focusProperties { up = upFocusRequester }
+                            } else Modifier
+                        ),
+                    onClick = { onItemClick(index, item) },
+                    onLongClick = { onItemLongPress(item) },
+                    onFocused = { onItemFocused(index) }
                 )
             }
-            val appleCardWidth = gridCardStyle.width
-            val appleCardHeight = gridCardStyle.height
-            ApplePosterCard(
-                item = item,
-                style = appleStyle,
-                fixedWidth = appleCardWidth,
-                fixedHeight = appleCardHeight,
-                // Year under every title.
-                belowSubtitle = itemMeta.ifEmpty { null },
-                modifier = Modifier
-                    .padding(top = 3.dp)
-                    .focusRequester(focusReq)
-                    .then(
-                        if (index < columnCount && upFocusRequester != null) {
-                            Modifier.focusProperties { up = upFocusRequester }
-                        } else Modifier
-                    ),
-                onClick = { onItemClick(index, item) },
-                onLongClick = { onItemLongPress(item) },
-                onFocused = { onItemFocused(index) }
-            )
         }
 
         if (hasActionCell) {
@@ -676,32 +664,31 @@ internal fun DiscoverGrid(
                     focusResults && items.isEmpty() -> firstItemFocusRequester
                     else -> null
                 }
-                DiscoverActionCard(
-                    actionType = actionType,
-                    posterCardStyle = gridCardStyle,
-                    modifier = Modifier
-                        .padding(top = 3.dp)
-                        .width(gridCardStyle.width),
-                    focusRequester = focusReq,
-                    onFocused = { onItemFocused(actionIndex) },
-                    onClick = {
-                        when (actionType) {
-                            DiscoverGridAction.ShowMore -> {
-                                pendingFocusOnNewItemIndex = items.size
-                                onLoadMore()
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    DiscoverActionCard(
+                        actionType = actionType,
+                        posterCardStyle = actionCardStyle,
+                        modifier = Modifier.padding(top = 3.dp),
+                        focusRequester = focusReq,
+                        onFocused = { onItemFocused(actionIndex) },
+                        onClick = {
+                            when (actionType) {
+                                DiscoverGridAction.ShowMore -> {
+                                    pendingFocusOnNewItemIndex = items.size
+                                    onLoadMore()
+                                }
+                                DiscoverGridAction.LoadMore -> {
+                                    pendingFocusOnNewItemIndex = items.size
+                                    onLoadMore()
+                                }
+                                DiscoverGridAction.Loading -> Unit
+                                DiscoverGridAction.None -> Unit
                             }
-                            DiscoverGridAction.LoadMore -> {
-                                pendingFocusOnNewItemIndex = items.size
-                                onLoadMore()
-                            }
-                            DiscoverGridAction.Loading -> Unit
-                            DiscoverGridAction.None -> Unit
                         }
-                    }
-                )
+                    )
+                }
             }
         }
-    }
     }
 }
 
@@ -730,18 +717,13 @@ private fun DiscoverActionCard(
         DiscoverGridAction.None -> ""
     }
     val cardDepthStyle = LocalCardDepthStyle.current
-    val globalLandscape = com.nuvio.tv.ui.components.LocalLandscapePosterMode.current
 
-    Column(
-        modifier = modifier.then(if (globalLandscape) Modifier.fillMaxWidth() else Modifier.width(posterCardStyle.width))
-    ) {
+    Column(modifier = modifier.width(posterCardStyle.width)) {
         Card(
             onClick = onClick,
             modifier = Modifier
-                .then(
-                    if (globalLandscape) Modifier.fillMaxWidth().aspectRatio(com.nuvio.tv.domain.model.PosterShape.LANDSCAPE.aspectRatio())
-                    else Modifier.width(posterCardStyle.width).height(posterCardStyle.height)
-                )
+                .width(posterCardStyle.width)
+                .height(posterCardStyle.height)
                 .focusProperties { canFocus = actionType != DiscoverGridAction.Loading }
                 .onPreviewKeyEvent { event ->
                     actionType != DiscoverGridAction.None &&
@@ -789,15 +771,5 @@ private fun DiscoverActionCard(
                 }
             }
         }
-        // Reserve space for label to match GridContentCard height
-        Spacer(
-            modifier = Modifier
-                .then(if (globalLandscape) Modifier.fillMaxWidth() else Modifier.width(posterCardStyle.width))
-                .padding(top = NuvioTheme.spacing.sm)
-                .height(
-                    MaterialTheme.typography.titleMedium.lineHeight.value.dp +
-                        MaterialTheme.typography.labelMedium.lineHeight.value.dp
-                )
-        )
     }
 }

@@ -9,8 +9,14 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -334,6 +340,7 @@ class DiscoverTmdbSource @Inject constructor(
     private val tmdbSettingsDataStore: TmdbSettingsDataStore
 ) {
     private val genreCache = ConcurrentHashMap<String, List<DiscoverFilterOption>>()
+    private val logoCache = ConcurrentHashMap<String, String>()
 
     val isAvailable: Boolean
         get() = BuildConfig.TMDB_API_KEY.isNotBlank()
@@ -496,9 +503,12 @@ class DiscoverTmdbSource @Inject constructor(
             }
             if (!response.isSuccessful) error("TMDB discover failed with HTTP ${response.code()}")
             val body = response.body() ?: error("TMDB discover returned no data")
-            val items = body.results.orEmpty()
-                .mapNotNull { it.toPreview(isSeries) }
-                .distinctBy { it.id }
+            val items = withTitleLogos(
+                items = body.results.orEmpty()
+                    .mapNotNull { it.toPreview(isSeries) }
+                    .distinctBy { it.id },
+                isSeries = isSeries
+            )
             val currentPage = body.page ?: page
             val totalPages = minOf(body.totalPages ?: currentPage, TMDB_MAX_PAGE)
             DiscoverTmdbPage(items = items, hasMore = items.isNotEmpty() && currentPage < totalPages)
@@ -535,6 +545,35 @@ class DiscoverTmdbSource @Inject constructor(
         return gte to lte
     }
 
+    /**
+     * TMDB discover has no title logos, so fetch them (bounded parallelism, cached) for the cards,
+     * which show the logo over the artwork like Home does and fall back to the title text.
+     */
+    private suspend fun withTitleLogos(items: List<MetaPreview>, isSeries: Boolean): List<MetaPreview> =
+        coroutineScope {
+            val gate = Semaphore(LOGO_FETCH_PARALLELISM)
+            items.map { item ->
+                async {
+                    val tmdbId = item.id.removePrefix("tmdb:").toIntOrNull() ?: return@async item
+                    val key = "${if (isSeries) "tv" else "movie"}:$tmdbId"
+                    val logo = logoCache[key] ?: gate.withPermit {
+                        withTimeoutOrNull(LOGO_FETCH_TIMEOUT_MS) { fetchLogo(tmdbId, isSeries) }
+                    }?.also { logoCache[key] = it }
+                    if (logo.isNullOrBlank()) item else item.copy(logo = logo)
+                }
+            }.awaitAll()
+        }
+
+    /** Logo url, "" when the title has none, or null when the request failed (not cached). */
+    private suspend fun fetchLogo(tmdbId: Int, isSeries: Boolean): String? = runCatching {
+        val apiKey = BuildConfig.TMDB_API_KEY
+        val response = if (isSeries) tmdbApi.getTvImages(tmdbId, apiKey) else tmdbApi.getMovieImages(tmdbId, apiKey)
+        if (!response.isSuccessful) return@runCatching null
+        val logos = response.body()?.logos.orEmpty().filter { !it.filePath.isNullOrBlank() }
+        val best = logos.firstOrNull { it.iso6391 == "en" } ?: logos.firstOrNull()
+        imageUrl(best?.filePath, "w300").orEmpty()
+    }.getOrNull()
+
     private fun TmdbDiscoverResult.toPreview(isSeries: Boolean): MetaPreview? {
         val title = title?.takeIf { it.isNotBlank() }
             ?: name?.takeIf { it.isNotBlank() }
@@ -570,5 +609,7 @@ class DiscoverTmdbSource @Inject constructor(
     private companion object {
         /** TMDB rejects discover pages above 500. */
         const val TMDB_MAX_PAGE = 500
+        const val LOGO_FETCH_PARALLELISM = 8
+        const val LOGO_FETCH_TIMEOUT_MS = 4_000L
     }
 }

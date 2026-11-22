@@ -97,6 +97,43 @@ internal data class AppleCardStyle(
     val expandDelayMs: Long = 3000L
 )
 
+/** Home's card style, shared with other screens (Discover, Providers) so their cards match Home rows. */
+@Composable
+internal fun rememberAppleCardStyle(
+    posterCardWidthDp: Int,
+    posterCardCornerRadiusDp: Int,
+    landscape: Boolean,
+    showLabels: Boolean,
+    alwaysLogo: Boolean,
+    showRatings: Boolean,
+    expandFocused: Boolean,
+    expandDelaySeconds: Int
+): AppleCardStyle = remember(
+    posterCardWidthDp,
+    posterCardCornerRadiusDp,
+    landscape,
+    showLabels,
+    alwaysLogo,
+    showRatings,
+    expandFocused,
+    expandDelaySeconds
+) {
+    AppleCardStyle(
+        scale = (posterCardWidthDp / 126f).coerceIn(0.8f, 1.4f),
+        corner = posterCardCornerRadiusDp.dp,
+        landscape = landscape,
+        showLabels = showLabels,
+        alwaysLogo = alwaysLogo,
+        showRatings = showRatings,
+        expandFocused = expandFocused,
+        expandDelayMs = expandDelaySeconds.coerceAtLeast(0) * 1000L
+    )
+}
+
+/** Card footprint (width, height) of an Apple Home poster card for [style], as ApplePosterCard lays it out. */
+internal fun AppleCardStyle.cardSize(): Pair<Dp, Dp> =
+    if (landscape) (240.dp * scale) to (135.dp * scale) else (130.dp * scale) to (195.dp * scale)
+
 /**
  * Apple TV style Home. Renders the state HomeViewModel already produces and respects Nuvio's home
  * settings (hero on/off, landscape/size/radius, labels, ratings, catalog titles, Continue Watching
@@ -165,27 +202,16 @@ fun AppleHomeContent(
         currentHero?.let { viewModel.refreshPosterLibraryStatus(it) }
     }
 
-    val cardStyle = remember(
-        uiState.posterCardWidthDp,
-        uiState.posterCardCornerRadiusDp,
-        uiState.modernLandscapePostersEnabled,
-        uiState.posterLabelsEnabled,
-        uiState.alwaysShowLandscapeClearlogo,
-        showRatings,
-        uiState.focusedPosterBackdropExpandEnabled,
-        uiState.focusedPosterBackdropExpandDelaySeconds
-    ) {
-        AppleCardStyle(
-            scale = (uiState.posterCardWidthDp / 126f).coerceIn(0.8f, 1.4f),
-            corner = uiState.posterCardCornerRadiusDp.dp,
-            landscape = uiState.modernLandscapePostersEnabled,
-            showLabels = uiState.posterLabelsEnabled,
-            alwaysLogo = uiState.alwaysShowLandscapeClearlogo,
-            showRatings = showRatings,
-            expandFocused = uiState.focusedPosterBackdropExpandEnabled,
-            expandDelayMs = uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L
-        )
-    }
+    val cardStyle = rememberAppleCardStyle(
+        posterCardWidthDp = uiState.posterCardWidthDp,
+        posterCardCornerRadiusDp = uiState.posterCardCornerRadiusDp,
+        landscape = uiState.modernLandscapePostersEnabled,
+        showLabels = uiState.posterLabelsEnabled,
+        alwaysLogo = uiState.alwaysShowLandscapeClearlogo,
+        showRatings = showRatings,
+        expandFocused = uiState.focusedPosterBackdropExpandEnabled,
+        expandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds
+    )
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     // Row heading (AppleRowTitle: bar+eyebrow+22sp title) is ~44dp. Tallest row drives the window: catalog cards, plus Continue Watching poster cards (title + episode label below).

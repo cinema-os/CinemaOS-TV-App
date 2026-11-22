@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,16 +45,30 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.LoadingIndicator
-import com.nuvio.tv.ui.screens.home.apple.AppleCardStyle
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.domain.model.HomeImdbRatingsVisibility
 import com.nuvio.tv.ui.screens.home.apple.ApplePosterCard
+import com.nuvio.tv.ui.screens.home.apple.cardSize
+import com.nuvio.tv.ui.screens.home.apple.rememberAppleCardStyle
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val HEADER_ITEMS = 2 // header + controls rows before the first card
+
+/** Gives the page the same Home card settings the Home rows use, without widening the view model. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ProviderLayoutEntryPoint {
+    fun layoutPreferences(): LayoutPreferenceDataStore
+}
 
 /**
  * Provider page: logo + name header, Movies / Series tabs, sort pills and a paging poster grid of
@@ -85,16 +100,32 @@ fun ProviderScreen(
 
     BackHandler { onBackPress() }
 
-    val cardStyle = remember(cornerRadiusDp) {
-        AppleCardStyle(
-            scale = 1f,
-            corner = cornerRadiusDp.dp,
-            landscape = false,
-            showLabels = true,
-            alwaysLogo = false,
-            showRatings = true
-        )
+    // Exactly Home's card style (same settings), so provider grids look like Home rows.
+    val context = LocalContext.current
+    val layoutPrefs = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            ProviderLayoutEntryPoint::class.java
+        ).layoutPreferences()
     }
+    val posterWidthDp by layoutPrefs.posterCardWidthDp.collectAsStateWithLifecycle(initialValue = 126)
+    val landscape by layoutPrefs.modernLandscapePostersEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val labels by layoutPrefs.posterLabelsEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val alwaysLogo by layoutPrefs.alwaysShowLandscapeClearlogo.collectAsStateWithLifecycle(initialValue = true)
+    val ratingsVisibility by layoutPrefs.homeImdbRatingsVisibility
+        .collectAsStateWithLifecycle(initialValue = HomeImdbRatingsVisibility.SHOW_ALL)
+    val homeCardStyle = rememberAppleCardStyle(
+        posterCardWidthDp = posterWidthDp,
+        posterCardCornerRadiusDp = cornerRadiusDp,
+        landscape = landscape,
+        showLabels = labels,
+        alwaysLogo = alwaysLogo,
+        showRatings = ratingsVisibility.showRatings,
+        // The focus-expand is a row feature; it would change the card width inside a grid cell.
+        expandFocused = false,
+        expandDelaySeconds = 3
+    )
+    val (cardWidth, _) = remember(homeCardStyle) { homeCardStyle.cardSize() }
 
     // Entry focus: the selected tab on first open; the last opened card when coming back.
     LaunchedEffect(state.isLoading, state.items.isNotEmpty()) {
@@ -150,11 +181,11 @@ fun ProviderScreen(
         )
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(6),
+            columns = GridCells.Adaptive(minSize = cardWidth),
             modifier = Modifier.fillMaxSize().dpadRepeatThrottle(),
             contentPadding = PaddingValues(start = 40.dp, end = 40.dp, top = 32.dp, bottom = 56.dp),
-            horizontalArrangement = Arrangement.spacedBy(22.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item(key = "provider_header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                 ProviderHeader(name = state.provider.name, logoUrl = state.logoUrl)
@@ -204,19 +235,20 @@ fun ProviderScreen(
                 }
                 else -> {
                     items(items = state.items, key = { it.id }, contentType = { "posterCard" }) { item ->
-                        ApplePosterCard(
-                            item = item,
-                            style = cardStyle,
-                            fixedWidth = 128.dp,
-                            fixedHeight = 192.dp,
-                            modifier = Modifier.focusRequester(cardRequester(item.id)),
-                            onFocused = { lastFocusedId = item.id },
-                            onClick = {
-                                lastFocusedId = item.id
-                                onNavigateToDetail(item.id, item.apiType, null)
-                            },
-                            onLongClick = null
-                        )
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            // Same call as Home's rows: Home size, title logo / text on the image.
+                            ApplePosterCard(
+                                item = item,
+                                style = homeCardStyle,
+                                modifier = Modifier.focusRequester(cardRequester(item.id)),
+                                onFocused = { lastFocusedId = item.id },
+                                onClick = {
+                                    lastFocusedId = item.id
+                                    onNavigateToDetail(item.id, item.apiType, null)
+                                },
+                                onLongClick = null
+                            )
+                        }
                     }
                     if (state.isLoadingMore) {
                         item(key = "provider_more", span = { GridItemSpan(maxLineSpan) }) {

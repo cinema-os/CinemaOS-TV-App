@@ -178,6 +178,27 @@ class SearchViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            combine(
+                layoutPreferenceDataStore.modernLandscapePostersEnabled,
+                layoutPreferenceDataStore.alwaysShowLandscapeClearlogo,
+                layoutPreferenceDataStore.homeImdbRatingsVisibility,
+                layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled,
+                layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds
+            ) { landscape, alwaysLogo, ratings, expandEnabled, expandDelay ->
+                HomeCardPrefs(landscape, alwaysLogo, ratings.showRatings, expandEnabled, expandDelay)
+            }.collectLatest { prefs ->
+                _uiState.update {
+                    it.copy(
+                        modernLandscapePostersEnabled = prefs.landscape,
+                        alwaysShowLandscapeClearlogo = prefs.alwaysLogo,
+                        showRatings = prefs.showRatings,
+                        focusedPosterBackdropExpandEnabled = prefs.expandEnabled,
+                        focusedPosterBackdropExpandDelaySeconds = prefs.expandDelaySeconds
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.catalogTypeSuffixEnabled.collectLatest { enabled ->
                 _uiState.update { it.copy(catalogTypeSuffixEnabled = enabled) }
             }
@@ -194,6 +215,14 @@ class SearchViewModel @Inject constructor(
             }
         }
     }
+
+    private data class HomeCardPrefs(
+        val landscape: Boolean,
+        val alwaysLogo: Boolean,
+        val showRatings: Boolean,
+        val expandEnabled: Boolean,
+        val expandDelaySeconds: Int
+    )
 
     private data class LayoutPrefs(
         val widthDp: Int,

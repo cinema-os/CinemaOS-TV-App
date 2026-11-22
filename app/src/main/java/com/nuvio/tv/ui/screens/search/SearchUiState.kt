@@ -52,6 +52,12 @@ data class SearchUiState(
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
+    /** Home card settings, so Discover / Provider cards render exactly like Home rows. */
+    val modernLandscapePostersEnabled: Boolean = true,
+    val alwaysShowLandscapeClearlogo: Boolean = true,
+    val showRatings: Boolean = true,
+    val focusedPosterBackdropExpandEnabled: Boolean = false,
+    val focusedPosterBackdropExpandDelaySeconds: Int = 3,
     val recentSearches: List<String> = emptyList(),
     val suggestions: List<String> = emptyList()
 )
