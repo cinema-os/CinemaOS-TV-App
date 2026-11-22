@@ -3,6 +3,8 @@
     <string name="nav_sports">Live TV</string>
     <string name="sports_title">Live TV</string>
     <string name="sports_filter_all">All</string>
+    <string name="sports_filter_more">More</string>
+    <string name="sports_filter_less">Less</string>
     <string name="sports_row_live">🔴 Live Now</string>
     <string name="sports_row_upcoming">⏱️ Upcoming</string>
     <string name="sports_row_networks">📺 24/7 TV</string>

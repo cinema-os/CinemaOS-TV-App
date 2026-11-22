@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +68,7 @@ import kotlinx.coroutines.delay
 
 private const val CHIP_LIVE_TV = "chip|live_tv"
 private const val CHIP_ALL = "chip|all"
+private const val CHIP_TOGGLE = "chip|toggle"
 private fun chipKey(sportId: String) = "chip|$sportId"
 private fun rowCardKey(rowKey: String, cardKey: String) = "card|$rowKey|$cardKey"
 private fun channelKey(cardKey: String) = "tv|$cardKey"
@@ -86,7 +89,7 @@ private const val RESTORE_ONLY_ATTEMPTS = 4
  * is shown with the sidebar closed and nothing inside it focused: the last focused chip/card
  * (also after returning from details), else the selected chip, else the first card.
  */
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SportsScreen(
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
@@ -121,6 +124,16 @@ fun SportsScreen(
     var lastFocusedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var pageHasFocus by remember { mutableStateOf(false) }
     var filterBarFocused by remember { mutableStateOf(false) }
+    var chipsExpanded by rememberSaveable { mutableStateOf(false) }
+    var toggleHandled by remember { mutableStateOf(false) }
+    // Keep D-pad focus on the More / Less chip after the bar swaps between its two layouts.
+    LaunchedEffect(chipsExpanded) {
+        if (!toggleHandled) { toggleHandled = true; return@LaunchedEffect }
+        repeat(3) {
+            withFrameNanos { }
+            if (runCatching { requesterFor(CHIP_TOGGLE).requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+        }
+    }
     val sidebarExpanded = LocalSidebarExpanded.current
 
     val showChips = uiState.filters.isNotEmpty() || uiState.hasLiveTv
@@ -189,44 +202,90 @@ fun SportsScreen(
                     modifier = Modifier.background(NuvioTheme.colors.Background)
                 ) { onFocusedTabPositioned ->
                     if (showChips) {
-                        LazyRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .focusRestorer()
-                                .onFocusChanged { filterBarFocused = it.hasFocus },
-                            contentPadding = PaddingValues(horizontal = horizontalPadding),
-                            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
-                        ) {
+                        val chips = buildList {
                             if (uiState.hasLiveTv) {
-                                item(key = "filter_live_tv") {
+                                add(SportChipSpec(
+                                    focusKey = CHIP_LIVE_TV, itemKey = "filter_live_tv",
+                                    title = stringResource(R.string.sports_filter_live_tv),
+                                    selected = uiState.isLiveTvSelected,
+                                    icon = com.nuvio.tv.ui.components.LiveTvIcon,
+                                    onClick = viewModel::selectLiveTv
+                                ))
+                            }
+                            add(SportChipSpec(
+                                focusKey = CHIP_ALL, itemKey = "filter_all",
+                                title = stringResource(R.string.sports_filter_all),
+                                selected = !uiState.isLiveTvSelected && uiState.selectedSportId == null,
+                                icon = null,
+                                onClick = { viewModel.selectSport(null) }
+                            ))
+                            uiState.filters.forEach { filter ->
+                                add(SportChipSpec(
+                                    focusKey = chipKey(filter.id), itemKey = "filter_${filter.id}",
+                                    title = filter.label,
+                                    selected = !uiState.isLiveTvSelected && uiState.selectedSportId == filter.id,
+                                    icon = null,
+                                    onClick = { viewModel.selectSport(filter.id) }
+                                ))
+                            }
+                        }
+                        // Compact: one row, selected chip first. Expanded: the full list, wrapped.
+                        val shownChips = if (chipsExpanded) chips else chips.sortedByDescending { it.selected }
+                        val toggleTitle = stringResource(
+                            if (chipsExpanded) R.string.sports_filter_less else R.string.sports_filter_more
+                        )
+                        val toggleChip: @Composable () -> Unit = {
+                            SettingsTopBarTab(
+                                title = toggleTitle,
+                                isSelected = false,
+                                onClick = { chipsExpanded = !chipsExpanded },
+                                onFocusedTabPositioned = onFocusedTabPositioned,
+                                modifier = Modifier.chipFocus(CHIP_TOGGLE, ::requesterFor, onFocusKey)
+                            )
+                        }
+                        if (chipsExpanded) {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp, horizontal = horizontalPadding)
+                                    .focusRestorer()
+                                    .onFocusChanged { filterBarFocused = it.hasFocus },
+                                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+                                verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+                            ) {
+                                shownChips.forEach { chip ->
                                     SettingsTopBarTab(
-                                        title = stringResource(R.string.sports_filter_live_tv),
-                                        isSelected = uiState.isLiveTvSelected,
-                                        onClick = viewModel::selectLiveTv,
-                                        icon = com.nuvio.tv.ui.components.LiveTvIcon,
+                                        title = chip.title,
+                                        isSelected = chip.selected,
+                                        onClick = chip.onClick,
+                                        icon = chip.icon,
                                         onFocusedTabPositioned = onFocusedTabPositioned,
-                                        modifier = Modifier.chipFocus(CHIP_LIVE_TV, ::requesterFor, onFocusKey)
+                                        modifier = Modifier.chipFocus(chip.focusKey, ::requesterFor, onFocusKey)
                                     )
                                 }
+                                toggleChip()
                             }
-                            item(key = "filter_all") {
-                                SettingsTopBarTab(
-                                    title = stringResource(R.string.sports_filter_all),
-                                    isSelected = !uiState.isLiveTvSelected && uiState.selectedSportId == null,
-                                    onClick = { viewModel.selectSport(null) },
-                                    onFocusedTabPositioned = onFocusedTabPositioned,
-                                    modifier = Modifier.chipFocus(CHIP_ALL, ::requesterFor, onFocusKey)
-                                )
-                            }
-                            items(uiState.filters, key = { "filter_${it.id}" }) { filter ->
-                                SettingsTopBarTab(
-                                    title = filter.label,
-                                    isSelected = !uiState.isLiveTvSelected && uiState.selectedSportId == filter.id,
-                                    onClick = { viewModel.selectSport(filter.id) },
-                                    onFocusedTabPositioned = onFocusedTabPositioned,
-                                    modifier = Modifier.chipFocus(chipKey(filter.id), ::requesterFor, onFocusKey)
-                                )
+                        } else {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .focusRestorer()
+                                    .onFocusChanged { filterBarFocused = it.hasFocus },
+                                contentPadding = PaddingValues(horizontal = horizontalPadding),
+                                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+                            ) {
+                                items(shownChips, key = { it.itemKey }) { chip ->
+                                    SettingsTopBarTab(
+                                        title = chip.title,
+                                        isSelected = chip.selected,
+                                        onClick = chip.onClick,
+                                        icon = chip.icon,
+                                        onFocusedTabPositioned = onFocusedTabPositioned,
+                                        modifier = Modifier.chipFocus(chip.focusKey, ::requesterFor, onFocusKey)
+                                    )
+                                }
+                                item(key = "filter_toggle") { toggleChip() }
                             }
                         }
                     }
@@ -301,6 +360,15 @@ fun SportsScreen(
         }
     }
 }
+
+private class SportChipSpec(
+    val focusKey: String,
+    val itemKey: String,
+    val title: String,
+    val selected: Boolean,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    val onClick: () -> Unit
+)
 
 private fun Modifier.chipFocus(
     key: String,
