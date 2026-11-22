@@ -549,16 +549,16 @@ internal fun DiscoverGrid(
     var fastScrollStartColumn by remember { mutableStateOf<Int?>(null) }
 
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-    // About 6 columns at TV width: card width follows the space so cards fill their cells.
-    val gridHSpacing = 22.dp
+    // Landscape mode: 5 columns of 16:9 cards; poster mode: 6 columns of 2:3 cards. The card width
+    // is derived from the available width so every card fills its grid cell exactly.
+    val gridHSpacing = 24.dp
     val gridSidePadding = 12.dp
-    val gridColumnsFixed = if (globalLandscape) 4 else 6
-    val gridCardStyle = if (globalLandscape) {
-        adaptiveStyle
-    } else {
-        val w = (maxWidth - gridSidePadding * 2 - gridHSpacing * (gridColumnsFixed - 1)) / gridColumnsFixed
-        adaptiveStyle.copy(width = w, height = w * 1.5f)
-    }
+    val gridColumnsFixed = if (globalLandscape) 5 else 6
+    val cardW = (maxWidth - gridSidePadding * 2 - gridHSpacing * (gridColumnsFixed - 1)) / gridColumnsFixed
+    val gridCardStyle = adaptiveStyle.copy(
+        width = cardW,
+        height = if (globalLandscape) cardW * 9f / 16f else cardW * 1.5f
+    )
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(gridColumnsFixed),
@@ -613,7 +613,7 @@ internal fun DiscoverGrid(
         contentPadding = PaddingValues(
             start = gridSidePadding,
             end = gridSidePadding,
-            top = 10.dp,
+            top = 6.dp,
             bottom = NuvioTheme.spacing.xxl
         ),
         horizontalArrangement = Arrangement.spacedBy(gridHSpacing),
@@ -630,12 +630,8 @@ internal fun DiscoverGrid(
                 focusResults && index == 0 -> firstItemFocusRequester
                 else -> itemFocusReq
             }
-            val itemRating = (item.imdbRating ?: item.tmdbRating)?.takeIf { it > 0f }
-            val itemYear = item.releaseInfo?.take(4)?.takeIf { it.isNotBlank() }
-            val itemMeta = listOfNotNull(
-                itemYear,
-                itemRating?.let { "\u2605 " + String.format(java.util.Locale.US, "%.1f", it) }
-            ).joinToString("  \u00B7  ")
+            // Only the year under the title: the rating already shows as the badge on the image.
+            val itemMeta = item.releaseInfo?.take(4)?.takeIf { it.isNotBlank() }.orEmpty()
             val appleStyle = remember(gridCardStyle.cornerRadius, globalLandscape) {
                 AppleCardStyle(
                     scale = 1f,
@@ -647,17 +643,13 @@ internal fun DiscoverGrid(
                 )
             }
             val appleCardWidth = gridCardStyle.width
-            val appleCardHeight = if (globalLandscape) {
-                appleCardWidth / com.nuvio.tv.domain.model.PosterShape.LANDSCAPE.aspectRatio()
-            } else {
-                gridCardStyle.height
-            }
+            val appleCardHeight = gridCardStyle.height
             ApplePosterCard(
                 item = item,
                 style = appleStyle,
                 fixedWidth = appleCardWidth,
                 fixedHeight = appleCardHeight,
-                // Year and rating under every title (same line as before).
+                // Year under every title.
                 belowSubtitle = itemMeta.ifEmpty { null },
                 modifier = Modifier
                     .padding(top = 3.dp)
