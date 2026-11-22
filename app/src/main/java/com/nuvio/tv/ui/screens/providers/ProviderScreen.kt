@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,12 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -44,7 +41,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -174,15 +170,16 @@ fun ProviderScreen(
 
     val background = NuvioTheme.colors.Background
     Box(modifier = Modifier.fillMaxSize().background(background)) {
-        // Soft brand glow behind the header.
+        // Soft brand-colour glow behind the header (no grey wash).
+        val glow = CinemaosStreamingProviders.brandFor(state.provider.id).color
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(260.dp)
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.White.copy(alpha = 0.07f),
-                        1f to Color.Transparent
+                        0f to glow.copy(alpha = 0.35f),
+                        1f to glow.copy(alpha = 0f)
                     )
                 )
         )
@@ -195,7 +192,7 @@ fun ProviderScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item(key = "provider_header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-                ProviderHeader(name = state.provider.name, logoUrl = state.logoUrl)
+                ProviderHeader(provider = state.provider, logoUrl = state.logoUrl)
             }
             item(key = "provider_controls", span = { GridItemSpan(maxLineSpan) }, contentType = "controls") {
                 ProviderControls(
@@ -271,34 +268,18 @@ fun ProviderScreen(
 }
 
 @Composable
-private fun ProviderHeader(name: String, logoUrl: String?) {
+private fun ProviderHeader(provider: StreamingProvider, logoUrl: String?) {
+    val name = provider.name
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFF1C1C1E)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (logoUrl != null) {
-                AsyncImage(
-                    model = logoUrl,
-                    contentDescription = name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Text(
-                    text = name.take(1),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
+        // Same brand tile as the Home row (gradient + wordmark, no grey container), 16:9.
+        ProviderBrandArt(
+            provider = provider,
+            tmdbLogoUrl = logoUrl,
+            modifier = Modifier.size(width = 160.dp, height = 90.dp)
+        )
         Spacer(Modifier.width(20.dp))
         Column {
             Text(

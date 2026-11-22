@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.providers
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,12 +29,9 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,7 +40,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.screens.home.apple.AppleFocusSurface
@@ -135,6 +132,10 @@ fun ProvidersHomeRow(
     }
 }
 
+/**
+ * Home tile: [ProviderBrandArt] (brand gradient + wordmark, no grey container) on a focus surface
+ * that only scales slightly and draws a white 2dp border when focused, with the name underneath.
+ */
 @Composable
 internal fun ProviderLogoTile(
     provider: StreamingProvider,
@@ -143,47 +144,27 @@ internal fun ProviderLogoTile(
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {}
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(12.dp)
+    var focused by remember { mutableStateOf(false) }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         AppleFocusSurface(
             onClick = onClick,
             onFocused = onFocused,
+            onFocusChange = { focused = it },
             shape = shape,
-            containerColor = Color(0xFF1C1C1E),
-            focusedContainerColor = Color(0xFF2C2C2E),
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            focusedScale = 1.06f,
             modifier = modifier.width(200.dp).height(112.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.06f),
-                            1f to Color.Transparent
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (logoUrl != null) {
-                    AsyncImage(
-                        model = logoUrl,
-                        contentDescription = provider.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 36.dp, vertical = 24.dp)
-                    )
-                } else {
-                    Text(
-                        text = provider.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 10.dp)
-                    )
+            Box(modifier = Modifier.fillMaxSize()) {
+                ProviderBrandArt(
+                    provider = provider,
+                    tmdbLogoUrl = logoUrl,
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (focused) {
+                    Box(modifier = Modifier.fillMaxSize().border(2.dp, Color.White, shape))
                 }
             }
         }
