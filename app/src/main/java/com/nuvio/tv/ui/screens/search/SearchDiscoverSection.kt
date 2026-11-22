@@ -499,7 +499,7 @@ internal fun DiscoverGrid(
     var gridWidthPx by remember { mutableStateOf(0) }
     val gridWidth = with(density) { gridWidthPx.toDp() }
     val gridCardStyle = remember(homeCardStyle, gridWidth) {
-        homeCardStyle.copy(expandFocused = false).fitToGrid(gridWidth, sidePadding = 12.dp, gap = 20.dp)
+        homeCardStyle.copy(expandFocused = false, showRatings = false).fitToGrid(gridWidth, sidePadding = 12.dp, gap = 20.dp)
     }
     val (cardW, cardH) = remember(gridCardStyle) { gridCardStyle.cardSize() }
     val actionCardStyle = remember(posterCardStyle, cardW, cardH, gridCardStyle.corner) {

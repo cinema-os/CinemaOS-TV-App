@@ -131,7 +131,7 @@ fun ProviderScreen(
     var gridWidthPx by remember { mutableStateOf(0) }
     val gridWidth = with(density) { gridWidthPx.toDp() }
     val gridCardStyle = remember(homeCardStyle, gridWidth) {
-        homeCardStyle.fitToGrid(gridWidth, sidePadding = 40.dp, gap = 20.dp)
+        homeCardStyle.copy(showRatings = false).fitToGrid(gridWidth, sidePadding = 40.dp, gap = 20.dp)
     }
 
     // Entry focus: the selected tab on first open; the last opened card when coming back.
