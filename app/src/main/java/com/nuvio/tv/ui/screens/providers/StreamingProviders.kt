@@ -96,10 +96,8 @@ object CinemaosStreamingProviders {
         ),
         "337" to ProviderBrand(
             Color(0xFF1F5FD6),
-            ProviderBackground.Radial(
-                1.2f, 1.0f, 0.5f, 1.1f,
-                listOf(0f to Color(0xFF1F5FD6), 0.55f to Color(0xFF0B1E5B), 1f to Color(0xFF040B26))
-            ),
+            // Plain top-to-bottom gradient: the radial version drew a visible ellipse edge on the tile.
+            linear(180.0, 0f to 0xFF040B26, 0.45f to 0xFF0B1E5B, 1f to 0xFF1F5FD6),
             R.drawable.provider_logo_disney, tintWhite = false
         ),
         "1899" to ProviderBrand(Color(0xFF4A1A78), solid(0xFF000000), R.drawable.provider_logo_hbo, tintWhite = true),

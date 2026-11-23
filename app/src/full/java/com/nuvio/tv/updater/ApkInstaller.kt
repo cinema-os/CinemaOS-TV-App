@@ -40,7 +40,8 @@ object ApkInstaller {
      * Installs [apkFile] as an update of this app through a PackageInstaller session, adding the APK's own dex
      * metadata so the new version is compiled at install time. A [background] install asks the system to skip the
      * confirmation screen, which Android 12+ allows for an app updating itself; elsewhere the system still asks.
-     * The outcome arrives in [UpdateInstallResultReceiver].
+     * Any other install always shows the system confirmation, which [UpdateInstallResultReceiver] brings to the front.
+     * The app is only replaced after the user confirms; the outcome arrives in [UpdateInstallResultReceiver].
      */
     fun install(
         context: Context,
@@ -54,8 +55,17 @@ object ApkInstaller {
             // Sessions default to internal-only, which the system rejects for an app the user moved to adopted
             // storage. Auto keeps the update on the volume the app is already on.
             setInstallLocation(PackageInfo.INSTALL_LOCATION_AUTO)
-            if (background && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Left unspecified, an app holding UPDATE_PACKAGES_WITHOUT_USER_ACTION that updates itself can be
+                // installed with no confirmation screen at all, and the app is then replaced behind the user's back.
+                // A user-started install always asks; only the idle background install skips it.
+                setRequireUserAction(
+                    if (background) {
+                        PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                    } else {
+                        PackageInstaller.SessionParams.USER_ACTION_REQUIRED
+                    }
+                )
             }
         }
         val dexMetadata = if (withDexMetadata) {

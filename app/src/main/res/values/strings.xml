@@ -2556,8 +2556,8 @@
     <string name="update_checking">Checking for updates…</string>
     <string name="update_waiting_for_stable">You’ll receive the next stable release when it becomes available</string>
     <string name="update_download_complete">Download complete. Ready to install.</string>
-    <string name="update_ready_closes">Download complete. The app closes while the update installs, which can take a minute. Open it again afterwards.</string>
-    <string name="update_ready_closes_and_reopens">Download complete. The app closes while the update installs and opens again by itself, which can take a minute.</string>
+    <string name="update_ready_closes">Download complete. Confirm the install when Android asks. The app then closes while the update installs, which can take a minute. Open it again afterwards.</string>
+    <string name="update_ready_closes_and_reopens">Download complete. Confirm the install when Android asks. The app then closes while the update installs and opens again by itself, which can take a minute.</string>
     <string name="update_installed_automatically">Updated automatically while the device was idle</string>
     <string name="update_up_to_date">System is up to date. Latest changes:</string>
     <string name="update_close">Close</string>
@@ -2569,6 +2569,7 @@
     <string name="update_error_check_failed">Update check failed</string>
     <string name="update_error_download_failed">Download failed</string>
     <string name="update_error_apk_missing">Downloaded file is missing</string>
+    <string name="update_error_install_failed">Couldn’t start the install. Try again.</string>
 
     <!-- Profile PIN errors -->
     <string name="profile_pin_save_error">Could not save PIN. Try again.</string>

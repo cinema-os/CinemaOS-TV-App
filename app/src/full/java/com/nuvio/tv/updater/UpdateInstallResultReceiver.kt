@@ -8,8 +8,24 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
 import java.io.File
+import java.util.Collections
+import kotlin.concurrent.thread
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 private const val TAG = "UpdateInstall"
+
+/** How a user-started install ended without replacing the app, so the update screen can stop waiting. */
+internal sealed interface UpdateInstallOutcome {
+    /** The user declined, or the install moved to another screen; nothing went wrong. */
+    data object Ended : UpdateInstallOutcome
+
+    /** The install could not be started by any route. */
+    data class Failed(val message: String?) : UpdateInstallOutcome
+}
+
+internal object UpdateInstallEvents {
+    val outcomes = MutableSharedFlow<UpdateInstallOutcome>(extraBufferCapacity = 4)
+}
 
 /**
  * Receives the outcome of an update install session. A confirmation request is shown only for installs the user
@@ -32,34 +48,79 @@ class UpdateInstallResultReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> Unit
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 if (background) {
-                    runCatching { context.packageManager.packageInstaller.abandonSession(sessionId) }
+                    abandon(context, sessionId)
                 } else {
-                    confirmationIntent(intent)?.let { confirm ->
+                    // The system installer's confirmation screen. It has to be started from here: the session stays
+                    // pending, and the app is only replaced once the user confirms it.
+                    val launched = confirmationIntent(intent)?.let { confirm ->
                         runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                            .onFailure {
-                                Log.w(TAG, "Install confirmation screen unavailable", it)
-                                runCatching { context.packageManager.packageInstaller.abandonSession(sessionId) }
-                                retryAfterFailure(context, apkFile, background = false, withDexMetadata = false)
-                            }
+                            .onFailure { Log.w(TAG, "Install confirmation screen unavailable", it) }
+                            .isSuccess
+                    } ?: false
+                    if (!launched) {
+                        abandon(context, sessionId)
+                        retryAfterFailure(context, apkFile, background = false, withDexMetadata = false, message = message)
                     }
                 }
             }
-            PackageInstaller.STATUS_FAILURE_ABORTED -> UpdateRelaunchReceiver.cancelReopen(context)
+            PackageInstaller.STATUS_FAILURE_ABORTED -> {
+                UpdateRelaunchReceiver.cancelReopen(context)
+                // The abort of a session abandoned above is part of a retry, not the user backing out.
+                if (!abandonedSessions.remove(sessionId) && !background) {
+                    UpdateInstallEvents.outcomes.tryEmit(UpdateInstallOutcome.Ended)
+                }
+            }
             else -> {
                 UpdateRelaunchReceiver.cancelReopen(context)
-                retryAfterFailure(context, apkFile, background, withDexMetadata)
+                retryAfterFailure(context, apkFile, background, withDexMetadata, message)
             }
         }
     }
 
-    private fun retryAfterFailure(context: Context, apkFile: File?, background: Boolean, withDexMetadata: Boolean) {
-        if (apkFile == null || !apkFile.exists()) return
-        runCatching {
-            when {
-                withDexMetadata -> ApkInstaller.install(context, apkFile, background, withDexMetadata = false)
-                !background -> ApkInstaller.launchSystemInstaller(context, apkFile)
+    private fun abandon(context: Context, sessionId: Int) {
+        abandonedSessions.add(sessionId)
+        runCatching { context.packageManager.packageInstaller.abandonSession(sessionId) }
+            .onFailure { abandonedSessions.remove(sessionId) }
+    }
+
+    /** Installs again without dex metadata, then through the system installer screen; reports it when nothing is left. */
+    private fun retryAfterFailure(
+        context: Context,
+        apkFile: File?,
+        background: Boolean,
+        withDexMetadata: Boolean,
+        message: String?
+    ) {
+        if (background) {
+            // Nothing is waiting on a background install, which retries on the next idle run.
+            if (apkFile != null && apkFile.exists() && withDexMetadata) {
+                runCatching { ApkInstaller.install(context, apkFile, background = true, withDexMetadata = false) }
+                    .onFailure { Log.w(TAG, "Update install retry failed", it) }
             }
-        }.onFailure { Log.w(TAG, "Update install retry failed", it) }
+            return
+        }
+        // Copying the APK into a new session takes longer than a receiver may run, so it moves off the main thread.
+        val pending = goAsync()
+        thread(name = "update-install-retry") {
+            try {
+                val outcome = runCatching {
+                    check(apkFile != null && apkFile.exists()) { "Downloaded file is missing" }
+                    if (withDexMetadata) {
+                        ApkInstaller.install(context, apkFile, background = false, withDexMetadata = false)
+                        null // another session is waiting for the user
+                    } else {
+                        ApkInstaller.launchSystemInstaller(context, apkFile)
+                        UpdateInstallOutcome.Ended // the system installer screen takes over from here
+                    }
+                }.getOrElse {
+                    Log.w(TAG, "Update install retry failed", it)
+                    UpdateInstallOutcome.Failed(message)
+                }
+                outcome?.let(UpdateInstallEvents.outcomes::tryEmit)
+            } finally {
+                pending.finish()
+            }
+        }
     }
 
     private fun confirmationIntent(intent: Intent): Intent? =
@@ -74,6 +135,9 @@ class UpdateInstallResultReceiver : BroadcastReceiver() {
         private const val EXTRA_APK_PATH = "com.nuvio.tv.updater.APK_PATH"
         private const val EXTRA_BACKGROUND = "com.nuvio.tv.updater.BACKGROUND"
         private const val EXTRA_WITH_DEX_METADATA = "com.nuvio.tv.updater.WITH_DEX_METADATA"
+
+        // Sessions this receiver abandoned itself, whose abort broadcast must not read as the user cancelling.
+        private val abandonedSessions: MutableSet<Int> = Collections.synchronizedSet(mutableSetOf())
 
         fun statusReceiver(
             context: Context,

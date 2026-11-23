@@ -32,6 +32,8 @@ data class UpdateUiState(
     val isUpdateAvailable: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgress: Float? = null,
+    /** An install was handed to Android and is waiting for the user's confirmation. */
+    val isInstalling: Boolean = false,
     val downloadedApkPath: String? = null,
     val showBanner: Boolean = false,
     val showUnknownSourcesDialog: Boolean = false,
@@ -62,6 +64,9 @@ class UpdateViewModel @Inject constructor(
     private var updateCheckJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            UpdateInstallEvents.outcomes.collect { onInstallOutcome(it) }
+        }
         viewModelScope.launch {
             val enabled = updatePreferences.updateBannerEnabled.first()
             val channel = updatePreferences.getOrInitializeUpdateChannel()
@@ -185,6 +190,7 @@ class UpdateViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 showBanner = false,
+                isInstalling = false,
                 showUnknownSourcesDialog = false,
                 errorMessage = null,
                 installedUpdate = null
@@ -238,6 +244,7 @@ class UpdateViewModel @Inject constructor(
                 isUpdateAvailable = false,
                 isDownloading = false,
                 downloadProgress = null,
+                isInstalling = false,
                 downloadedApkPath = null,
                 showBanner = false,
                 showUnknownSourcesDialog = false,
@@ -255,7 +262,9 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun downloadUpdate() {
-        val update = _uiState.value.update ?: return
+        val state = _uiState.value
+        val update = state.update ?: return
+        if (state.isDownloading || state.isInstalling) return
 
         viewModelScope.launch {
             _uiState.update {
@@ -304,11 +313,13 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun installUpdateOrRequestPermission() {
-        val apkPath = _uiState.value.downloadedApkPath ?: return
+        val state = _uiState.value
+        val apkPath = state.downloadedApkPath ?: return
         val apkFile = File(apkPath)
         if (!apkFile.exists()) {
             _uiState.update {
                 it.copy(
+                    isInstalling = false,
                     errorMessage = context.getString(R.string.update_error_apk_missing),
                     showBanner = true
                 )
@@ -317,26 +328,48 @@ class UpdateViewModel @Inject constructor(
         }
 
         if (!ApkInstaller.canRequestPackageInstalls(context)) {
-            _uiState.update { it.copy(showUnknownSourcesDialog = true, showBanner = true) }
+            _uiState.update { it.copy(isInstalling = false, showUnknownSourcesDialog = true, showBanner = true) }
             return
         }
 
-        _uiState.update { it.copy(showUnknownSourcesDialog = false) }
+        // One install at a time: a second session for the same app would race the first one's confirmation screen.
+        if (state.isInstalling) return
+        _uiState.update { it.copy(isInstalling = true, showUnknownSourcesDialog = false, errorMessage = null) }
         // Without dex metadata a session install gains nothing over the system installer, whose screen stays up
         // while the app is closed for the install and offers to open it again.
-        val useSystemInstaller = !ApkInstaller.supportsDexMetadata || !_uiState.value.optimizeDuringInstall
+        val useSystemInstaller = !ApkInstaller.supportsDexMetadata || !state.optimizeDuringInstall
         viewModelScope.launch(Dispatchers.IO) {
-            if (useSystemInstaller) {
-                runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
-                    .onFailure { error -> Log.w(TAG, "System installer failed", error) }
-                return@launch
+            // A started session reports back to UpdateInstallResultReceiver, which opens the system confirmation
+            // screen and tells onInstallOutcome if the install ends without replacing the app.
+            val sessionStarted = !useSystemInstaller &&
+                runCatching { ApkInstaller.install(context, apkFile, background = false) }
+                    .onFailure { Log.w(TAG, "Session install failed, falling back to the system installer", it) }
+                    .isSuccess
+            if (sessionStarted) return@launch
+
+            val launched = runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
+                .onFailure { Log.w(TAG, "System installer failed", it) }
+                .isSuccess
+            _uiState.update {
+                it.copy(
+                    isInstalling = false,
+                    errorMessage = if (launched) null else context.getString(R.string.update_error_install_failed),
+                    showBanner = it.showBanner || !launched
+                )
             }
-            runCatching { ApkInstaller.install(context, apkFile, background = false) }
-                .onFailure {
-                    Log.w(TAG, "Session install failed, falling back to the system installer", it)
-                    runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
-                        .onFailure { error -> Log.w(TAG, "System installer failed", error) }
-                }
+        }
+    }
+
+    private fun onInstallOutcome(outcome: UpdateInstallOutcome) {
+        _uiState.update { state ->
+            when (outcome) {
+                UpdateInstallOutcome.Ended -> state.copy(isInstalling = false)
+                is UpdateInstallOutcome.Failed -> state.copy(
+                    isInstalling = false,
+                    errorMessage = context.getString(R.string.update_error_install_failed),
+                    showBanner = true
+                )
+            }
         }
     }
 

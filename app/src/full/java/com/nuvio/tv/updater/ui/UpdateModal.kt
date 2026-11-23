@@ -25,10 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,16 +64,12 @@ internal fun UpdateModal(
 ) {
     val context = LocalContext.current
     val primaryFocus = remember { FocusRequester() }
-    var started by remember { mutableStateOf(false) }
-    val busy = started && state.errorMessage == null
-    val installing = state.downloadedApkPath != null && started
+    // Downloading and installing are tracked by the view model, which starts the install itself once the download
+    // finishes, so the modal only reflects them and survives being hidden for the unknown-sources prompt.
+    val busy = state.isDownloading || state.isInstalling
 
-    LaunchedEffect(update.tag) { primaryFocus.requestFocusAfterFrames() }
-    // Once the download finishes after "Update now", hand straight over to the installer.
-    LaunchedEffect(state.downloadedApkPath, started) {
-        if (started && state.downloadedApkPath != null) onInstall()
-    }
-    LaunchedEffect(state.errorMessage) { if (state.errorMessage != null) started = false }
+    // Focus returns to the primary button whenever the buttons come back, e.g. after the user declines the install.
+    LaunchedEffect(update.tag, busy) { if (!busy) primaryFocus.requestFocusAfterFrames() }
 
     val version = update.tag.let { if (it.startsWith("v")) it else "v$it" }
     val sizeLabel = update.assetSizeBytes?.let { Formatter.formatShortFileSize(context, it) }
@@ -88,8 +81,12 @@ internal fun UpdateModal(
     }
 
     Dialog(
-        onDismissRequest = { if (!busy) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !busy, dismissOnClickOutside = false)
+        onDismissRequest = { if (!state.isDownloading) onDismiss() },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = !state.isDownloading,
+            dismissOnClickOutside = false
+        )
     ) {
         Box(
             modifier = Modifier
@@ -170,15 +167,14 @@ internal fun UpdateModal(
                 Spacer(Modifier.height(22.dp))
 
                 when {
-                    installing -> StatusBlock("Installing…", null)
-                    busy && state.isDownloading -> {
+                    state.isInstalling -> StatusBlock("Confirm the install when Android asks…", null)
+                    state.isDownloading -> {
                         val p = state.downloadProgress
                         StatusBlock(
                             if (p != null) "Downloading ${(p * 100).toInt().coerceIn(0, 100)}%" else "Preparing download…",
                             p
                         )
                     }
-                    busy -> StatusBlock("Preparing download…", null)
                     else -> {
                         if (state.errorMessage != null) {
                             Text(
@@ -192,10 +188,7 @@ internal fun UpdateModal(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             Button(
-                                onClick = {
-                                    started = true
-                                    if (state.downloadedApkPath == null) onDownload()
-                                },
+                                onClick = { if (state.downloadedApkPath == null) onDownload() else onInstall() },
                                 modifier = Modifier.focusRequester(primaryFocus),
                                 colors = ButtonDefaults.colors(
                                     containerColor = Color.White,
