@@ -163,8 +163,8 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setRememberAudioDelayPerDevice(enabled)
     }
 
-    suspend fun setPreferredAudioLanguage(language: String) {
-        playerSettingsDataStore.setPreferredAudioLanguage(language)
+    suspend fun setAutoPlayAudioLanguage(language: String) {
+        playerSettingsDataStore.setAutoPlayAudioLanguage(language)
     }
 
     suspend fun setSecondaryPreferredAudioLanguage(language: String?) {
@@ -533,8 +533,8 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setParallelChunkSizeKb(clampedChunkKb)
     }
 
-    suspend fun setPreferredAudioLanguage(language: String) {
-        playerSettingsDataStore.setPreferredAudioLanguage(language)
+    suspend fun setAutoPlayAudioLanguage(language: String) {
+        playerSettingsDataStore.setAutoPlayAudioLanguage(language)
     }
 
     suspend fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {

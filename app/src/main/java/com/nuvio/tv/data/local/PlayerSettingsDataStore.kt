@@ -369,7 +369,7 @@ data class PlayerSettings(
     // Stream selection settings
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.FIRST_STREAM,
     /** Preferred audio language for auto-play ranking (English, Hindi, Japanese, Spanish, Portuguese, French, Original). */
-    val preferredAudioLanguage: String = "English",
+    val autoPlayAudioLanguage: String = "English",
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
@@ -688,7 +688,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val centerMixLevelDbKey = intPreferencesKey("center_mix_level_db")
     private val persistAudioAmplificationKey = booleanPreferencesKey("persist_audio_amplification")
     private val rememberAudioDelayPerDeviceKey = booleanPreferencesKey("remember_audio_delay_per_device")
-    private val preferredAudioLanguageKey = stringPreferencesKey("preferred_audio_language")
+    private val autoPlayAudioLanguageKey = stringPreferencesKey("autoplay_audio_language")
     private val secondaryPreferredAudioLanguageKey = stringPreferencesKey("secondary_preferred_audio_language")
     private val loadingOverlayEnabledKey = booleanPreferencesKey("loading_overlay_enabled")
     private val showPlayerLoadingStatusKey = booleanPreferencesKey("show_player_loading_status")
@@ -719,7 +719,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val frameRateMatchingModeKey = stringPreferencesKey("frame_rate_matching_mode")
     private val resolutionMatchingEnabledKey = booleanPreferencesKey("resolution_matching_enabled")
     private val streamAutoPlayModeKey = stringPreferencesKey("stream_auto_play_mode")
-    private val preferredAudioLanguageKey = stringPreferencesKey("preferred_audio_language")
+    private val autoPlayAudioLanguageKey = stringPreferencesKey("autoplay_audio_language")
     private val streamAutoPlaySourceKey = stringPreferencesKey("stream_auto_play_source")
     private val streamAutoPlaySelectedAddonsKey = stringSetPreferencesKey("stream_auto_play_selected_addons")
     private val streamAutoPlaySelectedPluginsKey = stringSetPreferencesKey("stream_auto_play_selected_plugins")
@@ -1127,7 +1127,7 @@ class PlayerSettingsDataStore @Inject constructor(
                     runCatching { FrameRateMatchingMode.valueOf(it) }.getOrNull()
                 } ?: if (prefs[frameRateMatchingKey] == true) FrameRateMatchingMode.START_STOP else FrameRateMatchingMode.OFF,
                 resolutionMatchingEnabled = prefs[resolutionMatchingEnabledKey] ?: false,
-                preferredAudioLanguage = (prefs[preferredAudioLanguageKey] ?: "English").also {
+                autoPlayAudioLanguage = (prefs[autoPlayAudioLanguageKey] ?: "English").also {
                     com.nuvio.tv.core.player.autoPlayPreferredAudioHint = it
                 },
                 streamAutoPlayMode = prefs[streamAutoPlayModeKey]?.let {
@@ -1428,7 +1428,7 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setPreferredAudioLanguage(language: String) {
+    suspend fun setAutoPlayAudioLanguage(language: String) {
         store().edit { it[preferredAudioLanguageKey] = normalizeSelectableLanguageCode(language.ifBlank { AudioLanguageOption.DEVICE }) }
     }
 
@@ -1518,9 +1518,9 @@ class PlayerSettingsDataStore @Inject constructor(
         )
     }
 
-    suspend fun setPreferredAudioLanguage(language: String) {
+    suspend fun setAutoPlayAudioLanguage(language: String) {
         store().edit { prefs ->
-            prefs[preferredAudioLanguageKey] = language
+            prefs[autoPlayAudioLanguageKey] = language
         }
     }
 
