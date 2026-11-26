@@ -37,7 +37,9 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
         val headers: Map<String, String>,
         val cdnThrottled: Boolean,
         val subjectId: String? = null,
-        val streamId: String = ""
+        val streamId: String = "",
+        val sizeBytes: Long = 0L,
+        val durationSec: Int = 0
     )
 
     private class Cap(val url: String, val label: String)
@@ -462,7 +464,9 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
         // a dub that resolved to the original's file is not a real language version
         val snapshot = synchronized(streams) { streams.toList() }
         val origUrls = snapshot.filter { it.subjectId == subjectId || it.subjectId == null }.map { it.url.substringBefore('?') }.toHashSet()
+        val runtimeMin = tmdbRuntimeMinutes(type, req.tmdbId)
         val filtered = snapshot
+            .filter { !isTruncated(it, runtimeMin) }
             .filter { !(it.subjectId != null && it.subjectId != subjectId && it.url.substringBefore('?') in origUrls) }
             .sortedWith(compareBy<MbStream> { it.cdnThrottled }.thenByDescending { it.qualityNum })
 
@@ -497,7 +501,7 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
                     title = "MovieBox · ${st.quality} · ${st.language}",
                     url = st.url,
                     quality = st.quality,
-                    language = st.language,
+                    language = com.nuvio.tv.core.player.StreamLanguage.normalisedLabel(st.language) ?: st.language,
                     provider = "MovieBox",
                     type = st.format,
                     headers = st.headers,
@@ -506,6 +510,37 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
             }
         if (out.isNotEmpty()) resultCache[cacheKey] = System.currentTimeMillis() to out
         return out
+    }
+
+    /** TMDB runtime in minutes (movie runtime / first episode_run_time), or 0 when unknown. */
+    private suspend fun tmdbRuntimeMinutes(type: String, tmdbId: String): Int {
+        val d = http.tmdbDetails(type, tmdbId) ?: return 0
+        val movie = d.optInt("runtime", 0)
+        if (movie > 0) return movie
+        val arr = d.optJSONArray("episode_run_time")
+        if (arr != null && arr.length() > 0) return arr.optInt(0, 0)
+        return 0
+    }
+
+    /**
+     * Half-episode dubs (11 min files of a 22 min episode): drop files whose duration, or failing that their size,
+     * implies less than 60% of the TMDB runtime. Without runtime / duration / size nothing is dropped.
+     */
+    private fun isTruncated(st: MbStream, runtimeMin: Int): Boolean {
+        if (runtimeMin <= 0) return false
+        val expectedSec = runtimeMin * 60.0
+        if (st.durationSec > 0) return st.durationSec < expectedSec * 0.6
+        if (st.sizeBytes > 0 && st.qualityNum > 0 && st.format != "dash") {
+            val mbps = when {
+                st.qualityNum >= 1080 -> 2.5
+                st.qualityNum >= 720 -> 1.5
+                st.qualityNum >= 480 -> 0.8
+                else -> 0.5
+            }
+            val expectedBytes = expectedSec * mbps * 1_000_000 / 8.0
+            return st.sizeBytes < expectedBytes * 0.6
+        }
+        return false
     }
 
     private suspend fun scrapeSubject(
@@ -537,7 +572,8 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
                     val n = qualityNum(r)
                     streams += MbStream(
                         url, formatOf(url, st.str("format")), if (n > 0) "${n}p" else "Auto", n, language,
-                        mapOf("Referer" to "$H5_BASE/", "User-Agent" to H5_UA), false, s.id, st.anyStr("id")
+                        mapOf("Referer" to "$H5_BASE/", "User-Agent" to H5_UA), false, s.id, st.anyStr("id"),
+                        st.optString("size").toLongOrNull() ?: 0L, st.optInt("duration", 0)
                     )
                     got++
                 }
@@ -598,7 +634,8 @@ class MovieBoxScraper(private val http: CinemaHttp) : CinemaScraper {
                 val n = qualityNum(q)
                 streams += MbStream(
                     url, formatOf(url, st.str("format")), if (n > 0) "${n}p" else "Auto", n, language, headers,
-                    data.optInt("cdnThrottleLevel") == 1, s.id, st.anyStr("id")
+                    data.optInt("cdnThrottleLevel") == 1, s.id, st.anyStr("id"),
+                    st.optString("size").toLongOrNull() ?: 0L, st.optInt("duration", 0)
                 )
             }
         }

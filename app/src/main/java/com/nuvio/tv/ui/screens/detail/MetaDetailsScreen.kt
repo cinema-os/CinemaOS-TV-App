@@ -762,8 +762,9 @@ fun MetaDetailsScreen(
                     meta.genres.takeIf { it.isNotEmpty() }
                         ?.joinToString(" • ") { localizedGenreLabel(context, it) }
                 }
-                val yearString = remember(meta.releaseInfo) {
-                    formatDetailYearRange(meta.releaseInfo)
+                val yearString = remember(meta.releaseInfo, meta.released, meta.type) {
+                    (if (meta.type == com.nuvio.tv.domain.model.ContentType.MOVIE) formatFullReleaseDate(meta.released) else null)
+                        ?: formatDetailYearRange(meta.releaseInfo)
                 }
                 val playEpisode: (Video) -> Unit = playEpisode@{ video ->
                     if (!playbackAvailability.canStream(meta.apiType, video.id, meta.id, video)) {

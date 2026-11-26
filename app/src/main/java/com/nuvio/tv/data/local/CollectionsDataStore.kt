@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.local
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
@@ -111,6 +112,58 @@ class CollectionsDataStore @Inject constructor(
 
     fun importFromJson(json: String): List<Collection> {
         return parseCollections(json)
+    }
+
+    /**
+     * One-time per profile: adds the "Popular in <country>" rows (TMDB discover, with_origin_country,
+     * movies + series). They are ordinary collections, so they can be hidden, reordered or removed
+     * from the Home catalog settings like any other row.
+     */
+    suspend fun ensureCountryCatalogsSeeded() {
+        val store = store()
+        val seededKey = booleanPreferencesKey("country_catalogs_seeded_v1")
+        if (store.data.first()[seededKey] == true) return
+        val countries = listOf(
+            "IN" to "India", "ID" to "Indonesia", "FR" to "France",
+            "NG" to "Nigeria", "ZA" to "South Africa", "KE" to "Kenya"
+        )
+        val existing = getCurrentCollections()
+        val existingIds = existing.map { it.id }.toSet()
+        val seeded = countries.mapNotNull { (code, name) ->
+            val id = "country_popular_${code.lowercase()}"
+            if (id in existingIds) return@mapNotNull null
+            val filters = TmdbCollectionFilters(withOriginCountry = code)
+            Collection(
+                id = id,
+                title = "Popular in $name",
+                viewMode = FolderViewMode.ROWS,
+                showAllTab = false,
+                folders = listOf(
+                    CollectionFolder(
+                        id = "${id}_folder",
+                        title = "Popular in $name",
+                        sources = listOf(
+                            TmdbCollectionSource(
+                                sourceType = TmdbCollectionSourceType.DISCOVER,
+                                title = "Popular in $name - Movies",
+                                mediaType = TmdbCollectionMediaType.MOVIE,
+                                sortBy = TmdbCollectionSort.POPULAR_DESC.value,
+                                filters = filters
+                            ),
+                            TmdbCollectionSource(
+                                sourceType = TmdbCollectionSourceType.DISCOVER,
+                                title = "Popular in $name - Series",
+                                mediaType = TmdbCollectionMediaType.TV,
+                                sortBy = TmdbCollectionSort.POPULAR_DESC.value,
+                                filters = filters
+                            )
+                        )
+                    )
+                )
+            )
+        }
+        if (seeded.isNotEmpty()) setCollections(existing + seeded)
+        store.edit { it[seededKey] = true }
     }
 
     suspend fun getCurrentCollections(): List<Collection> {

@@ -74,19 +74,35 @@ fun NuvioTheme(
     val typography = buildNuvioTypography(getFontFamily(appFont))
     val textStyles = buildNuvioTextStyles(typography)
 
-    val materialColorScheme = darkColorScheme(
-        primary = colorScheme.Primary,
-        onPrimary = colorScheme.OnPrimary,
-        secondary = colorScheme.Secondary,
-        onSecondary = colorScheme.OnSecondary,
-        background = colorScheme.Background,
-        surface = colorScheme.Surface,
-        surfaceVariant = colorScheme.SurfaceVariant,
-        onBackground = colorScheme.TextPrimary,
-        onSurface = colorScheme.TextPrimary,
-        onSurfaceVariant = colorScheme.TextSecondary,
-        error = colorScheme.Error
-    )
+    val materialColorScheme = if (palette.isLight) {
+        androidx.tv.material3.lightColorScheme(
+            primary = colorScheme.Primary,
+            onPrimary = colorScheme.OnPrimary,
+            secondary = colorScheme.Secondary,
+            onSecondary = colorScheme.OnSecondary,
+            background = colorScheme.Background,
+            surface = colorScheme.Surface,
+            surfaceVariant = colorScheme.SurfaceVariant,
+            onBackground = colorScheme.TextPrimary,
+            onSurface = colorScheme.TextPrimary,
+            onSurfaceVariant = colorScheme.TextSecondary,
+            error = colorScheme.Error
+        )
+    } else {
+        darkColorScheme(
+            primary = colorScheme.Primary,
+            onPrimary = colorScheme.OnPrimary,
+            secondary = colorScheme.Secondary,
+            onSecondary = colorScheme.OnSecondary,
+            background = colorScheme.Background,
+            surface = colorScheme.Surface,
+            surfaceVariant = colorScheme.SurfaceVariant,
+            onBackground = colorScheme.TextPrimary,
+            onSurface = colorScheme.TextPrimary,
+            onSurfaceVariant = colorScheme.TextSecondary,
+            error = colorScheme.Error
+        )
+    }
 
     val extendedColors = NuvioExtendedColors(
         backgroundElevated = colorScheme.BackgroundElevated,

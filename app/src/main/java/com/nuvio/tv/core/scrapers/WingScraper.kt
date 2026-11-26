@@ -41,11 +41,12 @@ class WingScraper(private val http: CinemaHttp) : CinemaScraper {
         val cands = out.sortedByDescending { it.rank }
             .filter { !BAD_HOST.containsMatchIn(it.url) }
             .take(60)
+        // Parallel head probes, 5 s cap: dead mirrors ("404 !", Cloudflare challenge pages) never reach the list.
         val verified = parallelUntil<Cand, Cand>(
             items = cands,
-            timeoutMs = 12_000,
+            timeoutMs = 5_000,
             enough = { false }
-        ) { c -> if (http.isVideo(c.url, emptyMap(), timeoutMs = 7_000)) c else null }
+        ) { c -> if (http.isVideo(c.url, emptyMap(), timeoutMs = 4_500)) c else null }
         return verified.sortedByDescending { it.rank }.map { c ->
             LocalScraperResult(
                 name = c.quality + (if (c.size.isNotEmpty()) " · ${c.size}" else ""),
@@ -53,7 +54,7 @@ class WingScraper(private val http: CinemaHttp) : CinemaScraper {
                 url = c.url,
                 quality = c.quality,
                 size = c.size.ifEmpty { null },
-                language = c.language,
+                language = com.nuvio.tv.core.player.StreamLanguage.normalisedLabel("${c.language} ${c.title}"),
                 provider = "Wing",
                 type = if (Regex("\\.mp4(\\?|&|$)", RegexOption.IGNORE_CASE).containsMatchIn(c.url)) "mp4" else "mkv",
                 headers = emptyMap()
@@ -80,7 +81,8 @@ class WingScraper(private val http: CinemaHttp) : CinemaScraper {
     private companion object {
         const val API = "https://downloads2.wing.st"
         // a.111477.xyz 307s to an HTML "bulk download" page (403 to players) - never playable.
-        val BAD_HOST = Regex("^https?://(a|p)\\.111477\\.xyz/", RegexOption.IGNORE_CASE)
+        // Cloudflare JS challenge ("Just a moment...") - not bypassed; dead for players.
+        val BAD_HOST = Regex("^https?://(a|p)\\.111477\\.xyz(/|:|$)", RegexOption.IGNORE_CASE)
         val LANGS = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Japanese", "Korean", "Spanish", "French")
     }
 }

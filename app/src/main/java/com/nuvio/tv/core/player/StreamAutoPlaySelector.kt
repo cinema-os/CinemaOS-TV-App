@@ -162,7 +162,8 @@ object StreamAutoPlaySelector {
                 val playableAll = candidateStreams.filter { isPlayable(it) }
                 // Size-aware: drop links whose estimated bitrate is too high to stream (REMUX,
                 // huge PixelDrain files) when an acceptable-quality lighter alternative exists.
-                val playable = deprioritiseHeavy(playableAll)
+                val playable = dropWrongMovieBoxDubs(deprioritiseHeavy(playableAll))
+                val preferredAudio = autoPlayPreferredAudioHint
                 if (isAnimeContent) {
                     // Anime: only the CinemaOS anime scrapers may be auto-picked (never HDHub /
                     // MovieBox / Movy / Wing), ranked Anikoto > AnimeWorld > KickAssAnime
@@ -179,7 +180,9 @@ object StreamAutoPlaySelector {
                 }
                 playable.withIndex().maxWithOrNull(
                     compareBy<IndexedValue<Stream>>(
-                        // Provider order wins first: Movy > HdHub > Wing > MovieBox
+                        // Preferred audio language first (original audio counts as English), then provider
+                        // order Movy > HdHub > Wing > MovieBox, so a non-preferred 1080p dub never outranks it.
+                        { audioPreferenceRank(it.value, preferredAudio) },
                         { autoPlayProviderRank(it.value.addonName) },
                         { autoPlayQualityRank(it.value) },
                         { if (isWebDlOrHls(it.value)) 1 else 0 },
@@ -279,6 +282,35 @@ private fun isWebDlOrHls(stream: Stream): Boolean {
 private fun deprioritiseHeavy(streams: List<Stream>): List<Stream> {
     val light = streams.filter { !isHeavyStream(it) && DeviceVideoCapabilities.playableHeight(it) >= 720 }
     return if (light.isEmpty()) streams else streams.filter { !isHeavyStream(it) }
+}
+
+/** 2 = matches the preferred language (or unknown and English wanted), 1 = unknown, 0 = other language. */
+internal fun audioPreferenceRank(stream: Stream, preferred: String): Int {
+    val info = StreamLanguage.of(stream)
+    // no language info (Movy, Wing): assumed English, so it competes on provider order for English / Original
+    if (!info.hasLanguage) return if (preferred.equals("English", true) || preferred.equals("Original", true)) 2 else 1
+    if (info.matches(preferred)) return 2
+    // original audio counts as English
+    if (preferred.equals("English", true) && info.kind == AudioKind.ORIGINAL) return 2
+    return 0
+}
+
+/** Never auto-pick a non-preferred MovieBox dub when an "Original Audio" link exists at >= 480p. */
+private fun dropWrongMovieBoxDubs(streams: List<Stream>): List<Stream> {
+    val preferred = autoPlayPreferredAudioHint
+    val hasOriginal = streams.any {
+        it.addonName.contains("MovieBox", true) &&
+            StreamLanguage.of(it).kind == AudioKind.ORIGINAL &&
+            DeviceVideoCapabilities.declaredHeight(it) >= 480
+    }
+    if (!hasOriginal) return streams
+    val kept = streams.filter {
+        !it.addonName.contains("MovieBox", true) || run {
+            val info = StreamLanguage.of(it)
+            info.kind != AudioKind.DUB || info.matches(preferred)
+        }
+    }
+    return kept.ifEmpty { streams }
 }
 
 private fun autoPlayQualityRank(stream: Stream): Int = DeviceVideoCapabilities.playableHeight(stream)

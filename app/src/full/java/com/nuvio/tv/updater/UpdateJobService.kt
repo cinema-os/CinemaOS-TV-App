@@ -49,6 +49,7 @@ class UpdateJobService : JobService() {
     private var jobScope: CoroutineScope? = null
 
     override fun onStartJob(params: JobParameters): Boolean {
+        if (DeviceUtils.isMetaQuest()) return false
         val entryPoint = EntryPointAccessors.fromApplication(applicationContext, UpdateJobEntryPoint::class.java)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         jobScope = scope

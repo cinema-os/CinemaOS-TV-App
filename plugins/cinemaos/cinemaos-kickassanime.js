@@ -153,7 +153,8 @@ function seasonFromTitle(t) {
 }
 function audioOf(server) {
   if (/multi/i.test(server)) return 'Multi-audio';
-  if (/hindi/i.test(server)) return 'Hindi';
+  var ind = String(server).match(/\b(hindi|tamil|telugu|malayalam|kannada|bengali)\b/i);
+  if (ind) return ind[1].charAt(0).toUpperCase() + ind[1].slice(1).toLowerCase();
   if (/\bdub\b/i.test(server)) return 'Dub';
   if (/\bsub\b|softsub|hardsub/i.test(server)) return 'Sub';
   return 'Original';
@@ -235,7 +236,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           title: LABEL + ' \u00b7 ' + s.server,
           url: s.link,
           quality: qualityLabel(s.quality),
-          language: /dub/i.test(audio) ? 'English' : audio === 'Hindi' ? 'Hindi' : 'Japanese',
+          language: /^(Hindi|Tamil|Telugu|Malayalam|Kannada|Bengali)$/.test(audio) ? audio : /dub/i.test(audio) ? 'English' : 'Japanese',
           provider: LABEL,
           type: /m3u8|hls/i.test(String(s.type)) || /\.m3u8/.test(s.link) ? 'hls' : /dash|mpd/i.test(String(s.type)) ? 'dash' : 'mp4',
           headers: s.headers || {},

@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "UpdateInstall"
+private const val DOWNLOAD_TIMEOUT_MS = 20 * 60_000L
+private const val INSTALL_TIMEOUT_MS = 3 * 60_000L
 
 data class UpdateUiState(
     val isChecking: Boolean = false,
@@ -48,7 +50,9 @@ data class UpdateUiState(
     val optimizeDuringInstall: Boolean = true,
     val optimizeDuringInstallSupported: Boolean = ApkInstaller.supportsDexMetadata,
     /** Release installed automatically since the last launch, shown in the banner until dismissed. */
-    val installedUpdate: AppUpdate? = null
+    val installedUpdate: AppUpdate? = null,
+    /** Meta Quest cannot run the in-app install flow; updates there are downloaded from the website. */
+    val isQuestDevice: Boolean = DeviceUtils.isMetaQuest()
 )
 
 @HiltViewModel
@@ -264,7 +268,7 @@ class UpdateViewModel @Inject constructor(
     fun downloadUpdate() {
         val state = _uiState.value
         val update = state.update ?: return
-        if (state.isDownloading || state.isInstalling) return
+        if (state.isDownloading || state.isInstalling || state.isQuestDevice) return
 
         viewModelScope.launch {
             _uiState.update {
@@ -276,14 +280,18 @@ class UpdateViewModel @Inject constructor(
             }
 
             val result = withContext(Dispatchers.IO) {
-                downloadStore.download(update) { downloaded, total ->
-                    val progress = if (total != null && total > 0) {
-                        (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                    } else {
-                        null
+                // A download that stalls or drags on must end in an error state instead of hanging forever.
+                val timed = kotlinx.coroutines.withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
+                    downloadStore.download(update) { downloaded, total ->
+                        val progress = if (total != null && total > 0) {
+                            (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            null
+                        }
+                        _uiState.update { it.copy(downloadProgress = progress) }
                     }
-                    _uiState.update { it.copy(downloadProgress = progress) }
                 }
+                timed ?: Result.failure(java.io.IOException(context.getString(R.string.update_error_download_failed)))
             }
 
             result
@@ -314,6 +322,7 @@ class UpdateViewModel @Inject constructor(
 
     fun installUpdateOrRequestPermission() {
         val state = _uiState.value
+        if (state.isQuestDevice) return
         val apkPath = state.downloadedApkPath ?: return
         val apkFile = File(apkPath)
         if (!apkFile.exists()) {
@@ -338,6 +347,19 @@ class UpdateViewModel @Inject constructor(
         // Without dex metadata a session install gains nothing over the system installer, whose screen stays up
         // while the app is closed for the install and offers to open it again.
         val useSystemInstaller = !ApkInstaller.supportsDexMetadata || !state.optimizeDuringInstall
+        // Never leave the UI stuck on "installing": if no outcome arrives, show an error and allow a retry.
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(INSTALL_TIMEOUT_MS)
+            _uiState.update {
+                if (it.isInstalling) {
+                    it.copy(
+                        isInstalling = false,
+                        errorMessage = context.getString(R.string.update_error_install_failed),
+                        showBanner = true
+                    )
+                } else it
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             // A started session reports back to UpdateInstallResultReceiver, which opens the system confirmation
             // screen and tells onInstallOutcome if the install ends without replacing the app.
@@ -430,5 +452,13 @@ class UpdateViewModel @Inject constructor(
             ApkInstaller.buildUnknownSourcesSettingsIntent(context),
             Intent(Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         ).any { runCatching { context.startActivity(it) }.isSuccess }
+    }
+}
+
+object DeviceUtils {
+    fun isMetaQuest(): Boolean {
+        val m = Build.MANUFACTURER.orEmpty()
+        return m.equals("Oculus", true) || m.equals("Meta", true) ||
+            Build.MODEL.orEmpty().contains("Quest", true)
     }
 }

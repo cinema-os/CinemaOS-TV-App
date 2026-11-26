@@ -27,6 +27,7 @@ object MovieBoxLanguageVariants {
 
     /** Collapses language variants of the same quality into one stream and registers the group. */
     fun collapse(streams: List<Stream>): List<Stream> {
+        registerAnimeAudioVariants(streams)
         if (streams.none { languageOf(it) != null }) return streams
         val groups = LinkedHashMap<String, MutableList<Stream>>()
         val result = ArrayList<Any>() // Stream or group key (String), preserving order
@@ -50,13 +51,45 @@ object MovieBoxLanguageVariants {
             if (variants.isEmpty()) return@mapNotNull null
             val list = variants.map { it.second }
             variants.forEach { (url, _) -> byUrl[url] = list }
-            val rep = (list.firstOrNull { isOriginal(it.language) } ?: list.first()).stream
+            val preferred = autoPlayPreferredAudioHint
+            val rep = (list.firstOrNull { StreamLanguage.detect(it.language).matches(preferred) }
+                ?: list.firstOrNull { isOriginal(it.language) } ?: list.first()).stream
             if (list.size > 1) {
                 val quality = rep.title?.split(SEP)?.getOrNull(1)
                 rep.copy(title = listOfNotNull("MovieBox", quality).joinToString(SEP))
             } else {
                 rep
             }
+        }
+    }
+
+    /**
+     * Anime: the audio panel offers "Japanese (Sub)", "English (Dub)" and other languages. Streams of one anime
+     * provider are grouped by audio label (best quality each); each of the provider's URLs maps to that list, so
+     * picking an entry switches to the matching source at the current position (same path as MovieBox variants).
+     */
+    private fun registerAnimeAudioVariants(streams: List<Stream>) {
+        val anime = streams.filter { animeProviderRank(it.addonName) > 0 && it.getStreamUrl() != null }
+        if (anime.isEmpty()) return
+        anime.groupBy { it.addonName }.values.forEach { group ->
+            val best = LinkedHashMap<String, Stream>()
+            group.forEach { st ->
+                val info = StreamLanguage.of(st)
+                val lang = info.primary ?: return@forEach
+                val label = when (info.kind) {
+                    AudioKind.DUB -> "$lang (Dub)"
+                    AudioKind.SUB -> "$lang (Sub)"
+                    else -> lang
+                }
+                val cur = best[label]
+                if (cur == null || DeviceVideoCapabilities.declaredHeight(st) > DeviceVideoCapabilities.declaredHeight(cur)) best[label] = st
+            }
+            if (best.size < 2) return@forEach
+            if (byUrl.size > MAX_ENTRIES) byUrl.clear()
+            val list = best.entries
+                .sortedBy { (label, _) -> if (label.endsWith("(Sub)")) 0 else if (label == "English (Dub)") 1 else 2 }
+                .map { Variant(it.key, it.value) }
+            group.forEach { st -> st.getStreamUrl()?.let { byUrl[it] = list } }
         }
     }
 

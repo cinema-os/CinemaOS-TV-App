@@ -199,6 +199,8 @@ fun CalendarScreen(
             month = state.month,
             isLoading = state.isLoading,
             listView = state.listView,
+            myShowsOnly = state.myShowsOnly,
+            onToggleMyShows = { viewModel.setMyShowsOnly(!state.myShowsOnly) },
             prevRequester = prevRequester,
             nextRequester = nextRequester,
             todayRequester = todayRequester,
@@ -270,6 +272,8 @@ private fun CalendarHeader(
     month: YearMonth,
     isLoading: Boolean,
     listView: Boolean,
+    myShowsOnly: Boolean,
+    onToggleMyShows: () -> Unit,
     prevRequester: FocusRequester,
     nextRequester: FocusRequester,
     todayRequester: FocusRequester,
@@ -341,6 +345,14 @@ private fun CalendarHeader(
             onClick = onToday,
             icon = Icons.Default.Today,
             modifier = Modifier.focusRequester(todayRequester).then(headerNav)
+        )
+        Spacer(Modifier.width(10.dp))
+        CinemaosPill(
+            text = stringResource(if (myShowsOnly) R.string.cinemaos_calendar_my_shows else R.string.cinemaos_calendar_all),
+            selected = myShowsOnly,
+            onClick = onToggleMyShows,
+            icon = Icons.Default.Today,
+            modifier = headerNav
         )
         Spacer(Modifier.width(10.dp))
         CinemaosPill(

@@ -34,7 +34,9 @@ data class CalendarUiState(
     val isLoading: Boolean = true,
     val hasSources: Boolean = true,
     val tmdbAvailable: Boolean = true,
-    val listView: Boolean = false
+    val listView: Boolean = false,
+    /** "My shows": only series from the library / watchlist / Continue Watching. */
+    val myShowsOnly: Boolean = false
 ) {
     val selectedEntries: List<CalendarEntry> get() = entriesByDate[selectedDate].orEmpty()
 }
@@ -59,6 +61,7 @@ class CalendarViewModel @Inject constructor(
             selectedDate = savedStateHandle.get<String>(KEY_DATE)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                 ?: LocalDate.now(),
             listView = savedStateHandle.get<Boolean>(KEY_LIST) ?: false,
+            myShowsOnly = savedStateHandle.get<Boolean>(KEY_MY_SHOWS) ?: false,
             tmdbAvailable = repository.isAvailable
         )
     )
@@ -66,6 +69,18 @@ class CalendarViewModel @Inject constructor(
 
     private var sources: List<CalendarSource>? = null
     private var loadJob: Job? = null
+    private var rawEntries: List<CalendarEntry> = emptyList()
+
+    private fun visibleByDate(): Map<LocalDate, List<CalendarEntry>> =
+        (if (_uiState.value.myShowsOnly) rawEntries.filter { it.fromLibrary && !it.isMovie } else rawEntries)
+            .groupBy { it.date }
+
+    fun setMyShowsOnly(enabled: Boolean) {
+        if (_uiState.value.myShowsOnly == enabled) return
+        savedStateHandle[KEY_MY_SHOWS] = enabled
+        _uiState.update { it.copy(myShowsOnly = enabled) }
+        _uiState.update { it.copy(entriesByDate = visibleByDate()) }
+    }
 
     init {
         viewModelScope.launch {
@@ -121,9 +136,11 @@ class CalendarViewModel @Inject constructor(
         loadJob?.cancel()
         val cached = repository.cached(month, currentSources)
         if (cached != null) {
-            _uiState.update { it.copy(entriesByDate = cached.groupBy { e -> e.date }, isLoading = false) }
+            rawEntries = cached
+            _uiState.update { it.copy(entriesByDate = visibleByDate(), isLoading = false) }
             return
         }
+        rawEntries = emptyList()
         _uiState.update { it.copy(entriesByDate = emptyMap(), isLoading = true) }
         loadJob = viewModelScope.launch {
             val entries = try {
@@ -135,7 +152,8 @@ class CalendarViewModel @Inject constructor(
                 emptyList()
             }
             if (_uiState.value.month != month) return@launch
-            _uiState.update { it.copy(entriesByDate = entries.groupBy { e -> e.date }, isLoading = false) }
+            rawEntries = entries
+            _uiState.update { it.copy(entriesByDate = visibleByDate(), isLoading = false) }
         }
     }
 
@@ -184,6 +202,7 @@ class CalendarViewModel @Inject constructor(
         const val KEY_MONTH = "calendar_month"
         const val KEY_DATE = "calendar_date"
         const val KEY_LIST = "calendar_list"
+        const val KEY_MY_SHOWS = "calendar_my_shows"
         const val SOURCE_DEBOUNCE_MS = 400L
         const val MAX_SERIES = 150
         const val MAX_MOVIES = 150

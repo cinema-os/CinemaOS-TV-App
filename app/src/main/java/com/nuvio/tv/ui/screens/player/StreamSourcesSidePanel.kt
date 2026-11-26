@@ -133,6 +133,8 @@ private fun StreamSourcesPanelContent(
 ) {
     var filter by remember { mutableStateOf(SourceFormatFilter.ALL) }
     var selectedProvider by remember { mutableStateOf<String?>(null) }
+    var languageFilter by remember { mutableStateOf<String?>(null) }
+    val languageRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val chipRequesters = remember { List(SourceFormatFilter.values().size) { FocusRequester() } }
     val providerRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val rightRequester = remember { FocusRequester() }
@@ -171,8 +173,15 @@ private fun StreamSourcesPanelContent(
     val currentProvider = currentStream?.addonName
     val currentKey = remember(currentStream) { currentStream?.sourceContentKey() }
 
-    val groups = remember(built, filter, currentProvider) {
-        groupSourceRows(built.rows, filter, currentProvider)
+    val presentLanguages = remember(built) {
+        built.rows.flatMap { it.languages }.groupingBy { it }.eachCount().entries
+            .sortedByDescending { it.value }.map { it.key }
+    }
+    LaunchedEffect(presentLanguages) {
+        if (languageFilter != null && languageFilter !in presentLanguages) languageFilter = null
+    }
+    val groups = remember(built, filter, currentProvider, languageFilter) {
+        groupSourceRows(built.rows, filter, currentProvider, languageFilter)
     }
     val serverCount = remember(groups) { groups.sumOf { it.rows.size } }
 
@@ -313,6 +322,30 @@ private fun StreamSourcesPanelContent(
                     onClick = onReload,
                     isLoading = searching
                 )
+            }
+
+            // Language filter chips (All + the languages present in the results).
+            if (presentLanguages.size > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = NuvioTheme.spacing.md)
+                ) {
+                    (listOf<String?>(null) + presentLanguages).forEach { lang ->
+                        SourceFilterChip(
+                            label = if (lang == null) "All languages"
+                                else com.nuvio.tv.core.player.StreamLanguage.flag(lang) + " " + lang,
+                            selected = languageFilter == lang,
+                            focusRequester = languageRequesters.getOrPut(lang ?: "") { FocusRequester() },
+                            downTarget = {
+                                providerRequesters[activeProvider]
+                                    ?.takeIf { providerListState.layoutInfo.visibleItemsInfo.any { it.key == activeProvider } }
+                                    ?: FocusRequester.Default
+                            },
+                            onSelect = { languageFilter = lang }
+                        )
+                    }
+                }
             }
 
             val emptyMessage: String? = when {

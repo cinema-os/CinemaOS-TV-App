@@ -78,7 +78,8 @@ object CinemaosStreamingProviders {
         StreamingProvider("283", "Crunchyroll"),
         StreamingProvider("2336|122", "JioHotstar"),
         StreamingProvider("232", "Zee5"),
-        StreamingProvider("237", "SonyLiv")
+        StreamingProvider("237", "SonyLiv"),
+        StreamingProvider("386|387", "Peacock")
     )
 
     /** Tile background + bundled logo per [StreamingProvider.id]. */
@@ -118,7 +119,13 @@ object CinemaosStreamingProviders {
             linear(135.0, 0f to 0xFF2A0B45, 1f to 0xFF14052A),
             R.drawable.provider_logo_zee5, tintWhite = false
         ),
-        "237" to ProviderBrand(Color(0xFF1A123C), solid(0xFF000000), R.drawable.provider_logo_sonyliv, tintWhite = false)
+        "237" to ProviderBrand(Color(0xFF1A123C), solid(0xFF000000), R.drawable.provider_logo_sonyliv, tintWhite = false),
+        // No bundled logo: the tile uses TMDB's Peacock provider icon (falls back to the name).
+        "386|387" to ProviderBrand(
+            Color(0xFF8A5BFF),
+            linear(135.0, 0f to 0xFF000000, 0.6f to 0xFF14102B, 1f to 0xFF2B1B66),
+            null, tintWhite = false
+        )
     )
 
     private val fallbackBrand = ProviderBrand(Color(0xFF1C1C1E), solid(0xFF1C1C1E), null, tintWhite = false)

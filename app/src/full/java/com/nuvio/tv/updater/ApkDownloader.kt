@@ -25,7 +25,12 @@ class ApkDownloader @Inject constructor(
                 .url(url)
                 .build()
 
-            okHttpClient.newCall(request).execute().use { response ->
+            okHttpClient.newBuilder()
+                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+                .newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     error("Download failed: HTTP ${response.code}")
                 }

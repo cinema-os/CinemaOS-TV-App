@@ -33,7 +33,17 @@ class HdHubScraper(private val http: CinemaHttp) : CinemaScraper {
         val imdb = brief.imdbId
         if (imdb.isBlank()) return emptyList()
         val path = if (req.isMovie) "movie/$imdb" else "series/$imdb%3A${req.season}%3A${req.episode}"
-        val res = http.fetch("$BASE/stream/$path.json", timeoutMs = 8_000, maxBytes = 2 * 1024 * 1024) ?: return emptyList()
+        // Circuit breaker: two consecutive 8 s timeouts skip the addon for 5 minutes.
+        if (System.currentTimeMillis() < skipUntil) return emptyList()
+        val res = http.fetch("$BASE/stream/$path.json", timeoutMs = 8_000, maxBytes = 2 * 1024 * 1024)
+        if (res == null) {
+            if (consecutiveTimeouts.incrementAndGet() >= 2) {
+                skipUntil = System.currentTimeMillis() + 5 * 60_000L
+                consecutiveTimeouts.set(0)
+            }
+            return emptyList()
+        }
+        consecutiveTimeouts.set(0)
         if (!res.ok) return emptyList()
         val streams = runCatching { JSONObject(res.text).optJSONArray("streams") }.getOrNull() ?: return emptyList()
 
@@ -87,7 +97,7 @@ class HdHubScraper(private val http: CinemaHttp) : CinemaScraper {
             LocalScraperResult(
                 name = "HDHub · ${x.host} · ${x.quality}",
                 title = x.label.replace(Regex("\\.(mkv|mp4|avi|webm|m4v)$", RegexOption.IGNORE_CASE), "").replace('.', ' ').replace('_', ' ').trim(),
-                language = x.language,
+                language = com.nuvio.tv.core.player.StreamLanguage.normalisedLabel(listOfNotNull(x.language, x.label).joinToString(" ")),
                 url = x.url,
                 quality = x.quality,
                 size = x.size.ifEmpty { null },
@@ -152,6 +162,8 @@ class HdHubScraper(private val http: CinemaHttp) : CinemaScraper {
     }
 
     private companion object {
+        @Volatile var skipUntil = 0L
+        val consecutiveTimeouts = java.util.concurrent.atomic.AtomicInteger(0)
         const val BASE = "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyJ9"
         const val MAX_CANDIDATES = 80
     }

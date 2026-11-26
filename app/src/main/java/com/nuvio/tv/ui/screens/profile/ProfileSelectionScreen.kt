@@ -1813,8 +1813,15 @@ internal fun EditProfileOverlay(
     val selectedAvatar = remember(avatarCatalog, selectedAvatarId) {
         avatarCatalog.find { it.id == selectedAvatarId }
     }
+    var customAvatarUrlText by remember(profile.id, profile.avatarUrl) {
+        mutableStateOf(profile.avatarUrl?.takeIf { it.isNotBlank() }.orEmpty())
+    }
+    var customAvatarUrlFailed by remember(customAvatarUrlText) { mutableStateOf(false) }
+    val normalizedCustomAvatarUrl = remember(customAvatarUrlText) { normalizeAvatarUrl(customAvatarUrlText) }
+    val customAvatarUrlInvalid = customAvatarUrlText.isNotBlank() && normalizedCustomAvatarUrl == null
     val hasChangedAvatarSelection = selectedAvatarId != profile.avatarId
     val previewAvatarImageUrl = when {
+        normalizedCustomAvatarUrl != null && !customAvatarUrlFailed -> normalizedCustomAvatarUrl
         selectedAvatar != null -> selectedAvatar.imageUrl
         !hasChangedAvatarSelection -> profile.avatarUrl?.takeIf { it.isNotBlank() }
             ?: avatarUrlResolver(profile.avatarId)
@@ -1908,7 +1915,13 @@ internal fun EditProfileOverlay(
                                     name = profileName,
                                     avatarColorHex = selectedColorHex,
                                     avatarId = selectedAvatarId,
-                                    avatarUrl = if (hasChangedAvatarSelection) null else profile.avatarUrl,
+                                    avatarUrl = when {
+                                        normalizedCustomAvatarUrl != null && !customAvatarUrlFailed -> normalizedCustomAvatarUrl
+                                        customAvatarUrlText.isBlank() && profile.avatarUrl.isNullOrBlank().not() &&
+                                            !hasChangedAvatarSelection -> null
+                                        hasChangedAvatarSelection -> null
+                                        else -> profile.avatarUrl
+                                    },
                                     profileBackgroundId = selectedBackgroundId,
                                     profileBackgroundUrl = selectedBackgroundUrl
                                 )
@@ -2029,6 +2042,14 @@ internal fun EditProfileOverlay(
 
                     when (selectedEditorTab) {
                         ProfileEditorTab.Avatar -> {
+                            ProfileAvatarUrlField(
+                                value = customAvatarUrlText,
+                                onValueChange = { customAvatarUrlText = it.take(500) },
+                                isInvalid = customAvatarUrlInvalid,
+                                loadFailed = customAvatarUrlFailed,
+                                previewUrl = normalizedCustomAvatarUrl,
+                                onPreviewFailed = { customAvatarUrlFailed = true }
+                            )
                             if (avatarCatalog.isNotEmpty()) {
                                 AvatarPickerGrid(
                                     avatars = avatarCatalog,
@@ -2832,5 +2853,101 @@ private fun OverlayButton(
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+/** Accepts "example.com/a.png", "http://..." (upgraded to https) and "https://..."; null when unusable. */
+private fun normalizeAvatarUrl(raw: String): String? {
+    val text = raw.trim()
+    if (text.isEmpty()) return null
+    val withScheme = when {
+        text.startsWith("https://", ignoreCase = true) -> text
+        text.startsWith("http://", ignoreCase = true) -> "https://" + text.substring(7)
+        text.contains("://") -> return null
+        else -> "https://$text"
+    }
+    val uri = runCatching { java.net.URI(withScheme) }.getOrNull() ?: return null
+    val host = uri.host ?: return null
+    if (!host.contains('.') && host != "localhost") return null
+    return uri.toString()
+}
+
+@Composable
+private fun ProfileAvatarUrlField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isInvalid: Boolean,
+    loadFailed: Boolean,
+    previewUrl: String?,
+    onPreviewFailed: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(ProfileSelectionSpacing.EditorFieldRadius))
+                    .background(
+                        if (isFocused) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.Field
+                    )
+                    .border(
+                        border = if (isFocused) NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs)
+                        else BorderStroke(NuvioTheme.spacing.hairline, NuvioTheme.colors.Border),
+                        shape = RoundedCornerShape(ProfileSelectionSpacing.EditorFieldRadius)
+                    )
+                    .padding(horizontal = NuvioTheme.spacing.lg, vertical = 12.dp)
+            ) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = "Custom picture URL (https://...)",
+                        color = NuvioTheme.colors.TextTertiary,
+                        fontSize = 15.sp
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isFocused = it.isFocused },
+                    textStyle = TextStyle(
+                        color = NuvioTheme.colors.TextPrimary,
+                        fontSize = 15.sp,
+                        textDirection = TextDirection.Ltr
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
+                    cursorBrush = NuvioTheme.focusRing.brush()
+                )
+            }
+            if (previewUrl != null && !loadFailed) {
+                coil3.compose.AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(context).data(previewUrl).build(),
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp).clip(CircleShape),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    onError = { onPreviewFailed() }
+                )
+            }
+        }
+        if (isInvalid || loadFailed) {
+            Text(
+                text = if (isInvalid) "Enter a valid image link (https://...)"
+                else "Couldn't load an image from this link",
+                color = NuvioTheme.colors.Error,
+                fontSize = 12.sp
+            )
+        }
     }
 }

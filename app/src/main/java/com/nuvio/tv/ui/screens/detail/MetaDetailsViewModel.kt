@@ -914,6 +914,7 @@ class MetaDetailsViewModel @Inject constructor(
             logo = enrichment.logo,
             description = enrichment.description,
             releaseInfo = enrichment.releaseInfo,
+            released = enrichment.releaseDate,
             status = enrichment.status,
             // TMDB's vote_average is not an IMDb score; it is shown as a TMDB rating (uiState.tmdbRating).
             imdbRating = null,
@@ -1664,7 +1665,8 @@ class MetaDetailsViewModel @Inject constructor(
         if (enrichment != null && settings.useBasicInfo) {
             updated = updated.copy(
                 name = enrichment.localizedTitle ?: updated.name,
-                description = enrichment.description ?: updated.description
+                description = enrichment.description ?: updated.description,
+                released = updated.released?.takeIf { it.isNotBlank() } ?: enrichment.releaseDate
             )
             if (enrichment.genres.isNotEmpty()) {
                 updated = updated.copy(genres = enrichment.genres)

@@ -36,7 +36,7 @@
       "id": "cinemaos-animesalt",
       "name": "CinemaOS \u00b7 AnimeSalt",
       "description": "AnimeSalt anime HLS (multi-audio)",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "filename": "cinemaos-animesalt.js",
       "supportedTypes": [
         "movie",
@@ -50,7 +50,7 @@
       "id": "cinemaos-animeworld",
       "name": "CinemaOS \u00b7 AnimeWorld",
       "description": "AnimeWorld anime (Hindi / multi-audio)",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "filename": "cinemaos-animeworld.js",
       "supportedTypes": [
         "movie",
@@ -64,7 +64,7 @@
       "id": "cinemaos-kickassanime",
       "name": "CinemaOS \u00b7 KickAssAnime",
       "description": "KickAssAnime HLS with soft subs",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "filename": "cinemaos-kickassanime.js",
       "supportedTypes": [
         "movie",

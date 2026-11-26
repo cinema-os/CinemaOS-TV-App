@@ -167,6 +167,44 @@ internal fun UpdateModal(
                 Spacer(Modifier.height(22.dp))
 
                 when {
+                    state.isQuestDevice -> {
+                        Text(
+                            text = "Update $version is available \u2014 download it from cinemaos.tech/apps",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Button(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(
+                                            android.content.Intent(
+                                                android.content.Intent.ACTION_VIEW,
+                                                android.net.Uri.parse("https://cinemaos.tech/apps")
+                                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.focusRequester(primaryFocus),
+                                colors = ButtonDefaults.colors(
+                                    containerColor = Color.White,
+                                    focusedContainerColor = Color.White,
+                                    contentColor = Color.Black,
+                                    focusedContentColor = Color.Black
+                                ),
+                                shape = ButtonDefaults.shape(RoundedCornerShape(50)),
+                                contentPadding = PaddingValues(horizontal = 36.dp, vertical = 12.dp)
+                            ) { Text("Open cinemaos.tech/apps", fontWeight = FontWeight.SemiBold, fontSize = 17.sp) }
+                            Button(
+                                onClick = onDismiss,
+                                shape = ButtonDefaults.shape(RoundedCornerShape(50)),
+                                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
+                            ) { Text("Later", fontSize = 17.sp) }
+                        }
+                    }
                     state.isInstalling -> StatusBlock("Confirm the install when Android asks…", null)
                     state.isDownloading -> {
                         val p = state.downloadProgress

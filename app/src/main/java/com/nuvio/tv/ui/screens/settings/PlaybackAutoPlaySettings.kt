@@ -98,6 +98,17 @@ internal fun PlaybackStreamSelectionSection(
         onClick = { onOpenDialog(PlaybackDialog.STREAM_AUTO_PLAY_MODE) }
     )
 
+    SettingsActionRow(
+        title = "Preferred audio language",
+        subtitle = "Auto-play picks this language first (Original = the title's own audio). Click to change.",
+        value = settings.preferredAudioLanguage,
+        onClick = {
+            val options = listOf("English", "Hindi", "Japanese", "Spanish", "Portuguese", "French", "Original")
+            val next = options[(options.indexOf(settings.preferredAudioLanguage) + 1).mod(options.size)]
+            onUpdate { setPreferredAudioLanguage(next) }
+        }
+    )
+
     if (settings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
         SettingsActionRow(
             title = stringResource(R.string.autoplay_regex_title),

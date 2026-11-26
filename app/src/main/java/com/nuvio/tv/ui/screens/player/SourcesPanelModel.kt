@@ -125,7 +125,10 @@ internal class SourceRowModel(
     val specs: List<SourceSpec>,
     /** "4.2 GB · Plugin name", or null. */
     val detail: String?,
-    val sizeBytes: Long = 0L
+    val sizeBytes: Long = 0L,
+    /** Normalised audio languages ('English', 'Hindi'...), empty when unknown. */
+    val languages: List<String> = emptyList(),
+    val audioKind: com.nuvio.tv.core.player.AudioKind = com.nuvio.tv.core.player.AudioKind.UNKNOWN
 )
 
 @Immutable
@@ -154,6 +157,10 @@ internal fun buildSourceRows(streams: List<Stream>): List<SourceRowModel> {
             while (!seen.add(key)) key = "$contentKey#${n++}"
         }
         val parsed = s.parsedSource()
+        val audio = com.nuvio.tv.core.player.StreamLanguage.of(s)
+        val langSpecs = ArrayList<SourceSpec>()
+        audio.label()?.let { langSpecs += SourceSpec(com.nuvio.tv.core.player.StreamLanguage.flag(audio.primary.orEmpty()) + " " + it) }
+        com.nuvio.tv.core.player.StreamLanguage.kindBadge(audio.kind)?.takeIf { it != "ORIG" }?.let { langSpecs += SourceSpec(it) }
         val plugin = s.pluginSourceName?.takeIf { it.isNotBlank() && it != s.addonName }
         out += SourceRowModel(
             key = key,
@@ -164,7 +171,9 @@ internal fun buildSourceRows(streams: List<Stream>): List<SourceRowModel> {
             qualityLabel = sourceQualityLabel(parsed.quality),
             format = parsed.format,
             title = s.getDisplayNameOrNull() ?: s.name ?: s.addonName,
-            specs = parsed.specs,
+            specs = langSpecs + parsed.specs,
+            languages = audio.languages,
+            audioKind = audio.kind,
             detail = listOfNotNull(parsed.size, plugin).joinToString(" · ").ifEmpty { null },
             sizeBytes = parsed.sizeBytes
         )
@@ -176,9 +185,11 @@ internal fun buildSourceRows(streams: List<Stream>): List<SourceRowModel> {
 internal fun groupSourceRows(
     rows: List<SourceRowModel>,
     filter: SourceFormatFilter,
-    currentProvider: String?
+    currentProvider: String?,
+    language: String? = null
 ): List<SourceProviderModel> {
-    val kept = if (filter == SourceFormatFilter.ALL) rows else rows.filter { r ->
+    val byLang = if (language == null) rows else rows.filter { language in it.languages }
+    val kept = if (filter == SourceFormatFilter.ALL) byLang else byLang.filter { r ->
         when (filter) {
             SourceFormatFilter.ALL -> true
             SourceFormatFilter.HD -> r.quality >= 1080

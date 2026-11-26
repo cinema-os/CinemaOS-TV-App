@@ -127,6 +127,61 @@
             </intent-filter>
         </activity>
 
+
+        <!-- Legacy launcher components from earlier versions. Home screens (Google TV) cache the component name of
+             the tile, so these must keep resolving or tapping the old tile does nothing. No launcher intent filter:
+             they never show a second icon, they only answer explicit launches. -->
+        <activity
+            android:name=".launcher.AppIconArcticBlue"
+            android:banner="@mipmap/banner"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="CinemaOS"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MyApplication.Launcher" />
+        <activity
+            android:name=".launcher.AppIconEmerald"
+            android:banner="@mipmap/banner"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="CinemaOS"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MyApplication.Launcher" />
+        <activity
+            android:name=".launcher.AppIconRoseGold"
+            android:banner="@mipmap/banner"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="CinemaOS"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MyApplication.Launcher" />
+        <activity
+            android:name=".launcher.AppIconCopper"
+            android:banner="@mipmap/banner"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="CinemaOS"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MyApplication.Launcher" />
+        <activity
+            android:name=".launcher.AppIconGraphite"
+            android:banner="@mipmap/banner"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="CinemaOS"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MyApplication.Launcher" />
+
         <profileable android:shell="true" />
         <service android:name="com.nuvio.tv.downloads.AdaptiveDownloadJobService"
             android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />

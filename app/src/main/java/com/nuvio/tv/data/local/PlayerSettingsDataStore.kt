@@ -368,6 +368,8 @@ data class PlayerSettings(
     val resolutionMatchingEnabled: Boolean = false,
     // Stream selection settings
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.FIRST_STREAM,
+    /** Preferred audio language for auto-play ranking (English, Hindi, Japanese, Spanish, Portuguese, French, Original). */
+    val preferredAudioLanguage: String = "English",
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
@@ -717,6 +719,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val frameRateMatchingModeKey = stringPreferencesKey("frame_rate_matching_mode")
     private val resolutionMatchingEnabledKey = booleanPreferencesKey("resolution_matching_enabled")
     private val streamAutoPlayModeKey = stringPreferencesKey("stream_auto_play_mode")
+    private val preferredAudioLanguageKey = stringPreferencesKey("preferred_audio_language")
     private val streamAutoPlaySourceKey = stringPreferencesKey("stream_auto_play_source")
     private val streamAutoPlaySelectedAddonsKey = stringSetPreferencesKey("stream_auto_play_selected_addons")
     private val streamAutoPlaySelectedPluginsKey = stringSetPreferencesKey("stream_auto_play_selected_plugins")
@@ -1124,6 +1127,9 @@ class PlayerSettingsDataStore @Inject constructor(
                     runCatching { FrameRateMatchingMode.valueOf(it) }.getOrNull()
                 } ?: if (prefs[frameRateMatchingKey] == true) FrameRateMatchingMode.START_STOP else FrameRateMatchingMode.OFF,
                 resolutionMatchingEnabled = prefs[resolutionMatchingEnabledKey] ?: false,
+                preferredAudioLanguage = (prefs[preferredAudioLanguageKey] ?: "English").also {
+                    com.nuvio.tv.core.player.autoPlayPreferredAudioHint = it
+                },
                 streamAutoPlayMode = prefs[streamAutoPlayModeKey]?.let {
                     runCatching { StreamAutoPlayMode.valueOf(it) }.getOrDefault(StreamAutoPlayMode.FIRST_STREAM)
                 } ?: StreamAutoPlayMode.FIRST_STREAM,
@@ -1510,6 +1516,12 @@ class PlayerSettingsDataStore @Inject constructor(
         setFrameRateMatchingMode(
             if (enabled) FrameRateMatchingMode.START_STOP else FrameRateMatchingMode.OFF
         )
+    }
+
+    suspend fun setPreferredAudioLanguage(language: String) {
+        store().edit { prefs ->
+            prefs[preferredAudioLanguageKey] = language
+        }
     }
 
     suspend fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {

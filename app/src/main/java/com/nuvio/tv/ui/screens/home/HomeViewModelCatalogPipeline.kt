@@ -46,6 +46,7 @@ private data class CatalogUpdateResult(
 @OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeCollectionsPipeline() {
     viewModelScope.launch {
+        runCatching { collectionsDataStore.ensureCountryCatalogsSeeded() }
         collectionsDataStore.collections
             .distinctUntilChanged()
             .debounce(300)

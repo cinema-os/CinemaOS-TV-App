@@ -128,7 +128,8 @@ object DiscoverFilterValues {
     )
     val countries = listOf(
         "US", "GB", "IN", "JP", "KR", "FR", "DE", "ES", "IT", "CA", "AU",
-        "CN", "HK", "BR", "MX", "TR", "SE", "DK", "NO"
+        "CN", "HK", "BR", "MX", "TR", "SE", "DK", "NO",
+        "ID", "NG", "ZA", "KE"
     )
 
     /** TMDB watch provider ids; brand names are not translated. */
@@ -143,7 +144,8 @@ object DiscoverFilterValues {
         "283" to "Crunchyroll",
         "2336|122" to "JioHotstar",
         "232" to "Zee5",
-        "237" to "SonyLiv"
+        "237" to "SonyLiv",
+        "386|387" to "Peacock"
     )
 
     /** TMDB network ids (series only). */

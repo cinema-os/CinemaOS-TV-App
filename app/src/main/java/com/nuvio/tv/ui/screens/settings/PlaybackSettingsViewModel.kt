@@ -533,6 +533,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setParallelChunkSizeKb(clampedChunkKb)
     }
 
+    suspend fun setPreferredAudioLanguage(language: String) {
+        playerSettingsDataStore.setPreferredAudioLanguage(language)
+    }
+
     suspend fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
         playerSettingsDataStore.setStreamAutoPlayMode(mode)
     }

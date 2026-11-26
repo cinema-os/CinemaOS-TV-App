@@ -19,7 +19,7 @@ class MovyScraper(private val http: CinemaHttp) : CinemaScraper {
     override val id = "cinemaos-movy"
     override val name = "CinemaOS · Movy"
     override val description = "Movy (movy.sx) HLS / MP4 streams"
-    override val budgetMs = 14_000L
+    override val budgetMs = 17_000L
 
     private data class Src(val url: String, val quality: String, val type: String, val shard: String)
     private data class ShardResult(val shard: String, val data: JSONObject)
@@ -99,7 +99,18 @@ class MovyScraper(private val http: CinemaHttp) : CinemaScraper {
 
         // No pre-verification (the RN app returns the shard answers straight away): shard CDN checks used to push
         // the scraper past its budget and drop every result.
-        return sorted
+        // Real resolution from each master playlist + token check (first segment). Links that answer with an error are
+        // dropped (expired / IP-bound tokens); links that merely time out are kept.
+        val probed = parallelUntil<Src, Src>(items = sorted, timeoutMs = 6_000) { st ->
+            if (st.type != "hls") return@parallelUntil st
+            val info = http.probeHls(st.url, headers, timeoutMs = 5_000) ?: return@parallelUntil st
+            if (!info.playable) return@parallelUntil null
+            if (info.maxHeight > 0) st.copy(quality = "${info.maxHeight}p") else st
+        }
+        val finalList = probed.ifEmpty { if (sorted.any { it.type != "hls" }) sorted.filter { it.type != "hls" } else emptyList() }
+            .distinctBy { it.url }
+            .sortedByDescending { rank(it.quality) }
+        return finalList
             .map { st ->
                 LocalScraperResult(
                     name = "${st.quality} · ${st.type.uppercase()}",

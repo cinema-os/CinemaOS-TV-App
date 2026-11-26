@@ -23,7 +23,14 @@ data class ThemeColorPalette(
     val field: Color = NuvioPrimitives.neutral850,
     val menu: Color = NuvioPrimitives.neutral875,
     val modal: Color = NuvioPrimitives.neutral900,
-    val playerOverlay: Color = Color(0xCC000000)
+    val playerOverlay: Color = Color(0xCC000000),
+    val isLight: Boolean = false,
+    val textPrimary: Color = NuvioPrimitives.white,
+    val textSecondary: Color = NuvioPrimitives.neutral400,
+    val textTertiary: Color = NuvioPrimitives.neutral600,
+    val textDisabled: Color = NuvioPrimitives.neutral700,
+    val divider: Color = NuvioPrimitives.neutral750,
+    val focusContent: Color = NuvioPrimitives.white
 )
 
 object ThemeColors {
@@ -91,6 +98,33 @@ object ThemeColors {
         backgroundCard = NuvioPrimitives.neutral850
     )
 
+    val Light = ThemeColorPalette(
+        secondary = Color(0xFF1B1B1F),
+        secondaryVariant = Color(0xFF3A3A40),
+        onSecondary = Color(0xFFFFFFFF),
+        onSecondaryVariant = Color(0xFFFFFFFF),
+        focusRing = Color(0xFF1B1B1F),
+        focusBackground = Color(0xFFDADCE3),
+        background = Color(0xFFF4F5F8),
+        backgroundElevated = Color(0xFFFFFFFF),
+        backgroundCard = Color(0xFFE9EBF0),
+        surface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFE2E4EA),
+        panel = Color(0xFFFFFFFF),
+        overlay = Color(0xD9F4F5F8),
+        field = Color(0xFFE9EBF0),
+        menu = Color(0xFFFFFFFF),
+        modal = Color(0xFFFFFFFF),
+        playerOverlay = Color(0xCC000000),
+        isLight = true,
+        textPrimary = Color(0xFF121216),
+        textSecondary = Color(0xFF4A4D57),
+        textTertiary = Color(0xFF6E717C),
+        textDisabled = Color(0xFF9A9DA8),
+        divider = Color(0xFFCDD0D8),
+        focusContent = Color(0xFF121216)
+    )
+
     fun getColorPalette(
         theme: AppTheme,
         customColors: CustomThemeColors = CustomThemeColors.Default
@@ -109,6 +143,7 @@ object ThemeColors {
             AppTheme.AMBER -> Amber
             AppTheme.ROSE -> Rose
             AppTheme.WHITE -> White
+            AppTheme.LIGHT -> Light
         }
     }
 }
