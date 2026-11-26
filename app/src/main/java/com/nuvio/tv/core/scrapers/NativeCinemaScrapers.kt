@@ -17,12 +17,18 @@ import javax.inject.Singleton
  */
 @Singleton
 class NativeCinemaScrapers @Inject constructor(private val http: CinemaHttp) {
-    /** Priority order: Movy > HdHub > Wing > MovieBox. */
+    /** Priority order: Movy > HdHub > Wing > MovieBox > HDhub4u > 4KHDHub > VegaMovies > Movies4u > Hindmoviez. */
     val providers: List<CinemaScraper> = listOf(
         MovyScraper(http),
         HdHubScraper(http),
         WingScraper(http),
-        MovieBoxScraper(http)
+        MovieBoxScraper(http),
+        // Direct-link site scrapers (HubCloud / Google MKV): lowest priority, after the established four.
+        Hdhub4uScraper(http),
+        FourKHdHubScraper(http),
+        VegaMoviesScraper(http),
+        Movies4uScraper(http),
+        HindmoviezScraper(http)
     )
 
     /** Movies and non-anime series only (anime ids belong to the anime JS plugins). */
@@ -95,7 +101,7 @@ class NativeCinemaScrapers @Inject constructor(private val http: CinemaHttp) {
     }
 
     private fun String.isPriorityTier(): Boolean =
-        contains("movy", true) || contains("hdhub", true)
+        contains("movy", true) || (contains("hdhub", true) && !contains("hdhub4u", true) && !contains("4khdhub", true))
 
     private companion object {
         const val TAG = "NativeCinemaScrapers"

@@ -3,10 +3,13 @@ package com.nuvio.tv.ui.components
 /** Splits anime vs movie/series providers by name so the UI never mixes them. */
 object ProviderContentFilter {
     private val animeProviders = listOf("anikoto", "animeworld", "kickassanime", "animesalt", "megaplay")
-    private val movieProviders = listOf("movy", "hdhub", "wing", "moviebox")
+    private val movieProviders = listOf("movy", "hdhub", "wing", "moviebox", "vegamovies", "movies4u", "hindmoviez")
 
     /** Native Kotlin providers (NativeCinemaScrapers) in priority order; seeded as chips at search start. */
-    val nativeMovieProviderNames = listOf("CinemaOS · Movy", "CinemaOS · HdHub", "CinemaOS · Wing", "CinemaOS · MovieBox")
+    val nativeMovieProviderNames = listOf(
+        "CinemaOS · Movy", "CinemaOS · HdHub", "CinemaOS · Wing", "CinemaOS · MovieBox",
+        "CinemaOS · HDhub4u", "CinemaOS · 4KHDHub", "CinemaOS · VegaMovies", "CinemaOS · Movies4u", "CinemaOS · Hindmoviez"
+    )
 
     fun isAnimeProvider(name: String): Boolean {
         val n = name.lowercase()

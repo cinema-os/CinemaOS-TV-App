@@ -327,6 +327,7 @@ fun animeProviderRank(addonName: String): Int = when {
 /** Movie/TV provider priority: Movy > HdHub > Wing > MovieBox. */
 fun autoPlayProviderRank(addonName: String): Int = when {
     addonName.contains("Movy", true) -> 4
+    addonName.contains("HDhub4u", true) || addonName.contains("4KHDHub", true) -> 0
     addonName.contains("HdHub", true) -> 3
     addonName.contains("Wing", true) -> 2
     addonName.contains("MovieBox", true) -> 1

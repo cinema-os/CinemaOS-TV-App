@@ -29,7 +29,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** A fully / partially read HTTP answer. [body] holds at most the requested number of bytes. */
-class CinemaResponse(val code: Int, val headers: Headers, val body: ByteArray) {
+class CinemaResponse(val code: Int, val headers: Headers, val body: ByteArray, val finalUrl: String = "") {
     val ok: Boolean get() = code in 200..299
     val text: String get() = String(body, Charsets.UTF_8)
     fun header(name: String): String = headers[name].orEmpty()
@@ -109,7 +109,7 @@ class CinemaHttp @Inject constructor(baseClient: OkHttpClient) {
                     }
                     out.toByteArray()
                 }
-                CinemaResponse(r.code, r.headers, bytes)
+                CinemaResponse(r.code, r.headers, bytes, r.request.url.toString())
             }
         } catch (e: CancellationException) {
             throw e
